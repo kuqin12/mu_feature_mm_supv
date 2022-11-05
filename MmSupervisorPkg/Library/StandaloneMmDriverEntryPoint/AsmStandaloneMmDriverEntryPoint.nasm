@@ -9,6 +9,8 @@
     SECTION .text
 
 extern ASM_PFX(_ModuleEntryPointWorker)
+extern ASM_PFX(__security_check_cookie)
+extern ASM_PFX(__security_cookie)
 
 ;------------------------------------------------------------------------------
 ; EFI_STATUS
@@ -22,13 +24,23 @@ extern ASM_PFX(_ModuleEntryPointWorker)
 global ASM_PFX(_ModuleEntryPoint)
 ASM_PFX(_ModuleEntryPoint):
     ;By the time we are here, it should be everything CPL3 already
-    sub     rsp, 0x18
+
+    ;Plant stack cookie to the stack
+    mov     rax, [__security_cookie]
+    xor     rax, rsp
+    push    rax
+
+    sub     rsp, 0x20
 
     ;To boot strap this driver, we directly call the entry point worker
     call    _ModuleEntryPointWorker
 
     ;Restore the stack pointer
-    add     rsp, 0x18
+    add     rsp, 0x20
+
+    pop     rcx
+    xor     rcx, rsp
+    call    __security_check_cookie
 
     ;Once returned, we will get returned status in rax, don't touch it, if you can help
     ;r15 contains call gate selector that was planned ahead
