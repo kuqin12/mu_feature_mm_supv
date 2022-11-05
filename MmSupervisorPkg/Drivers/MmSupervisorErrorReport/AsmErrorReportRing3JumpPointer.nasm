@@ -9,6 +9,8 @@
     SECTION .text
 
 extern ASM_PFX(MmSupvErrorReportWorker)
+extern ASM_PFX(__security_check_cookie)
+extern ASM_PFX(__security_cookie)
 
 ;------------------------------------------------------------------------------
 ; EFI_STATUS
@@ -23,13 +25,26 @@ extern ASM_PFX(MmSupvErrorReportWorker)
 global ASM_PFX(RegErrorReportJumpPointer)
 ASM_PFX(RegErrorReportJumpPointer):
     ;By the time we are here, it should be everything CPL3 already
+    sub     rsp, 0x10
+
+    ;Plant stack cookie to the stack
+    mov     rax, [__security_cookie]
+    xor     rax, rsp
+    mov     [rsp+8], rax
+
     sub     rsp, 0x18
 
     ;To boot strap this procedure, we directly call the registered procedure worker
     call    MmSupvErrorReportWorker
 
-    ;Restore the stack pointer
     add     rsp, 0x18
+
+    mov     rcx, [rsp+8]
+    xor     rcx, rsp
+    call    __security_check_cookie
+
+    ;Restore the stack pointer
+    add     rsp, 0x10
 
     ;Once returned, we will get returned status in rax, don't touch it, if you can help
     ;r15 contains call gate selector that was planned ahead
