@@ -28,6 +28,9 @@
 ; This should be OFFSET_OF (MM_SUPV_SYSCALL_CACHE, SavedUserRsp)
 %define SAVED_USER_RSP                  0x08
 
+extern ASM_PFX(__security_check_cookie)
+extern ASM_PFX(__security_cookie)
+
 extern ASM_PFX(SyscallDispatcher)
 ;------------------------------------------------------------------------------
 ; Caller Interface:
@@ -96,7 +99,16 @@ ASM_PFX(SyscallCenter):
     mov     rcx, rax
     sub     rsp, 0x20
 
+    ;Plant stack cookie to the stack
+    mov     rax, [__security_cookie]
+    xor     rax, rsp
+    mov     [rsp+8], rax
+
     call    ASM_PFX(SyscallDispatcher)
+
+    mov     rcx, [rsp+8]
+    xor     rcx, rsp
+    call    __security_check_cookie
 
     add     rsp, 0x20
     pop     rcx                          ; Restore SP to avoid stack overflow

@@ -43,6 +43,9 @@ extern ASM_PFX(RegisteredRing3JumpPointer)
 extern ASM_PFX(RegApRing3JumpPointer)
 extern ASM_PFX(RegErrorReportJumpPointer)
 
+extern ASM_PFX(__security_check_cookie)
+extern ASM_PFX(__security_cookie)
+
 ;------------------------------------------------------------------------------
 ; EFI_STATUS
 ; EFIAPI
@@ -71,6 +74,11 @@ ASM_PFX(InvokeDemotedDriverEntryPoint):
 
     ;Place holder on stack
     sub     rsp, 0x20
+
+    ;Plant stack cookie to the stack
+    mov     rax, [__security_cookie]
+    xor     rax, rsp
+    mov     [rsp+8], rax
 
     call    GetBspCpl3Stack
     mov     r15, rax
@@ -138,6 +146,10 @@ EntryReturnPointer:
     call    RestoreBspCpl0MsrStar
     pop     rax
 
+    mov     rcx, [rsp+8]
+    xor     rcx, rsp
+    call    __security_check_cookie
+
     ;Then offset the stack place holder for function entry
     add     rsp, 0x20
 
@@ -192,6 +204,11 @@ ASM_PFX(InvokeDemotedMmHandler):
 
     ;Place holder on stack
     sub     rsp, 0x30
+
+    ;Plant stack cookie to the stack
+    mov     rax, [__security_cookie]
+    xor     rax, rsp
+    mov     [rsp+8], rax
 
     call    GetBspCpl3Stack
     mov     r15, rax
@@ -266,6 +283,10 @@ MmHandlerReturnPointer:
     call    RestoreBspCpl0MsrStar
     pop     rax
 
+    mov     rcx, [rsp+8]
+    xor     rcx, rsp
+    call    __security_check_cookie
+
     ;Then offset the stack place holder for function entry
     add     rsp, 0x30
 
@@ -321,6 +342,11 @@ ASM_PFX(InvokeDemotedApProcedure):
 
     ;Place holder on stack
     sub     rsp, 0x20
+
+    ;Plant stack cookie to the stack
+    mov     rax, [__security_cookie]
+    xor     rax, rsp
+    mov     [rsp+8], rax
 
     push    rcx
     call    GetThisCpl3Stack
@@ -394,6 +420,10 @@ ASM_PFX(ApHandlerReturnPointer):
     call    RestoreCpl0MsrStar
     pop     rax
 
+    mov     rcx, [rsp+8]
+    xor     rcx, rsp
+    call    __security_check_cookie
+
     ;Then offset the stack place holder for function entry
     add     rsp, 0x20
 
@@ -446,6 +476,11 @@ ASM_PFX(InvokeDemotedErrorReport):
 
     ;Place holder on stack
     sub     rsp, 0x30
+
+    ;Plant stack cookie to the stack
+    mov     rax, [__security_cookie]
+    xor     rax, rsp
+    mov     [rsp+8], rax
 
     push    rcx
     call    GetThisCpl3Stack
@@ -518,6 +553,10 @@ ErrorReportReturnPointer:
     push    rax
     call    RestoreCpl0MsrStar
     pop     rax
+
+    mov     rcx, [rsp+8]
+    xor     rcx, rsp
+    call    __security_check_cookie
 
     ;Then offset the stack place holder for function entry
     add     rsp, 0x30
