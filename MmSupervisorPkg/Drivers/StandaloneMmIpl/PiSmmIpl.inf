@@ -56,6 +56,7 @@
   ReportStatusCodeLib
   SafeIntLib  #MU_CHANGE: BZ3398
   SecurityLockAuditLib  #MSCHANGE
+  BaseBinSecurityLib  ## MS_CHANGE_?
 
 [Protocols]
   gEfiSmmBase2ProtocolGuid                      ## PRODUCES

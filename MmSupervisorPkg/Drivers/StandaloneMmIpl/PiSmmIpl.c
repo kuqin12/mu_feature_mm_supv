@@ -46,6 +46,7 @@
 
 #include <Library/SafeIntLib.h>           // MU_CHANGE: BZ3398
 #include <Library/SecurityLockAuditLib.h> // MSCHANGE
+#include <Library/BaseBinSecurityLib.h>   // MS_CHANGE_?
 
 #define SMRAM_CAPABILITIES  (EFI_MEMORY_WB | EFI_MEMORY_UC)
 
@@ -333,12 +334,13 @@ BOOLEAN                    mEndOfDxe  = FALSE;
 EFI_PHYSICAL_ADDRESS       mSmramCacheBase;
 UINT64                     mSmramCacheSize;
 // MU_CHANGE Starts: MM_SUPV: Cache value of communication buffer allocated during PEI.
-UINTN  mMmSupvCommonBufferPages     = 0;
-UINTN  mMmUserCommonBufferPages     = 0;
-VOID   *mMmSupvCommonBuffer         = NULL;
-VOID   *mMmUserCommonBuffer         = NULL;
-VOID   *mMmSupvCommonBufferPhysical = NULL;
-VOID   *mMmUserCommonBufferPhysical = NULL;
+UINTN   mMmSupvCommonBufferPages     = 0;
+UINTN   mMmUserCommonBufferPages     = 0;
+VOID    *mMmSupvCommonBuffer         = NULL;
+VOID    *mMmUserCommonBuffer         = NULL;
+VOID    *mMmSupvCommonBufferPhysical = NULL;
+VOID    *mMmUserCommonBufferPhysical = NULL;
+UINT64  *SecurityCookieAddress;                          // MS_CHANGE_?
 // MU_CHANGE Ends: MM_SUPV.
 
 EFI_SMM_COMMUNICATE_HEADER                  *mCommunicateHeader      = NULL;
@@ -1305,6 +1307,13 @@ ExecuteSmmCoreFromSmram (
                                       &BufferInHob->Address
                                       );
         ASSERT_EFI_ERROR (Status);
+      }
+
+      // MS_CHANGE_?
+      Status = PeCoffLoaderGetSecurityCookieAddress (&ImageContext, &SecurityCookieAddress);
+      if (!EFI_ERROR (Status)) {
+        InitializeSecurityCookieAddress (SecurityCookieAddress);
+        DEBUG ((DEBUG_INFO | DEBUG_LOAD, "Standalone MM Core SecurityCookie set to %lld\n", (*SecurityCookieAddress)));
       }
 
       //
