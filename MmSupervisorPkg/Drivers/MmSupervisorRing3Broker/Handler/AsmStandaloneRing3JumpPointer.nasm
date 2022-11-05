@@ -8,6 +8,9 @@
     DEFAULT REL
     SECTION .text
 
+extern ASM_PFX(__security_check_cookie)
+extern ASM_PFX(__security_cookie)
+
 ;------------------------------------------------------------------------------
 ; EFI_STATUS
 ; EFIAPI
@@ -26,6 +29,13 @@ ASM_PFX(CentralRing3JumpPointer):
     ;Note that top of stack at this moment is real jmp point
     pop     rax
 
+    ;Plant stack cookie to the stack
+    sub     rsp, 0x10
+    mov     [rsp], rbx
+    mov     rbx, [__security_cookie]
+    xor     rbx, rsp
+    mov     [rsp+8], rbx
+
     sub     rsp, 0x28
 
     ;To boot strap this driver, we directly call the entry point worker
@@ -33,6 +43,12 @@ ASM_PFX(CentralRing3JumpPointer):
 
     ;Restore the stack pointer
     add     rsp, 0x28
+
+    mov     rcx, [rsp+8]
+    xor     rcx, rsp
+    call    __security_check_cookie
+    pop     rbx
+    pop     rbx
 
     ;Just to restore the stack to be a law-abiding citizen
     push    rax
@@ -56,16 +72,29 @@ ASM_PFX(CentralRing3JumpPointer):
 global ASM_PFX(ApRing3JumpPointer)
 ASM_PFX(ApRing3JumpPointer):
     ;By the time we are here, it should be everything CPL3 already
-    sub     rsp, 0x18
+    sub     rsp, 0x10
+
+    ;Plant stack cookie to the stack
+    mov     rax, [__security_cookie]
+    xor     rax, rsp
+    mov     [rsp+8], rax
 
     mov     rax, rcx
     mov     rcx, rdx
 
+    sub     rsp, 0x18
+
     ;To boot strap this procedure, we directly call the registered procedure worker
     call    rax
 
-    ;Restore the stack pointer
     add     rsp, 0x18
+
+    mov     rcx, [rsp+8]
+    xor     rcx, rsp
+    call    __security_check_cookie
+
+    ;Restore the stack pointer
+    add     rsp, 0x10
 
     ;Once returned, we will get returned status in rax, don't touch it, if you can help
     ;r15 contains call gate selector that was planned ahead
