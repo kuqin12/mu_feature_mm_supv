@@ -62,6 +62,7 @@
   PeCoffGetEntryPointLib
   MtrrLib  #MU_CHANGE: MM_SUPV: MMRAM region cachability during init
   PerformanceLib  #MU_CHANGE: MM_SUPV: Added performance data points
+  BaseBinSecurityLib  ## MS_CHANGE_?
 
 [Ppis]
   gEfiPeiSmmCommunicationPpiGuid                ## PRODUCES

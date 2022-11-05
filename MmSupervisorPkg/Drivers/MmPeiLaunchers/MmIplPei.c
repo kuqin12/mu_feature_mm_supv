@@ -41,6 +41,7 @@
 #include <Library/SafeIntLib.h>           // MU_CHANGE: BZ3398
 #include <Library/SecurityLockAuditLib.h> // MSCHANGE
 #include <Library/MtrrLib.h>              // MU_CHANGE: MM_SUPV: Mark cachability for MMRAM regions
+#include <Library/BaseBinSecurityLib.h>   // MS_CHANGE_?
 
 #include "Common/CommonHeader.h"
 #include "Common/MmIplCommon.h"
@@ -181,6 +182,7 @@ EFI_PEI_MM_ACCESS_PPI   *mSmmAccess;
 EFI_MMRAM_DESCRIPTOR    *mCurrentMmramRange;
 EFI_PHYSICAL_ADDRESS    mMmramCacheBase;
 UINT64                  mMmramCacheSize;
+UINT64                  *SecurityCookieAddress;                           // MS_CHANGE_?
 
 // MU_CHANGE: Loaded Fixed Address information is unsupported
 // EFI_LOAD_FIXED_ADDRESS_CONFIGURATION_TABLE    *mLMFAConfigurationTable = NULL;
@@ -779,6 +781,14 @@ ExecuteMmCoreFromMmram (
       // MU_CHANGE Starts: To load x64 MM foundation, mode switch is needed
       EntryPoint = (STANDALONE_MM_FOUNDATION_ENTRY_POINT)(UINTN)ImageContext.EntryPoint;
       HobStart   = GetHobList ();
+
+      // MS_CHANGE_?
+      Status = PeCoffLoaderGetSecurityCookieAddress (&ImageContext, &SecurityCookieAddress);
+      if (!EFI_ERROR (Status)) {
+        InitializeSecurityCookieAddress (SecurityCookieAddress);
+        DEBUG ((DEBUG_INFO | DEBUG_LOAD, "Standalone MM Core SecurityCookie set to %lld\n", (*SecurityCookieAddress)));
+      }
+
  #ifdef MDE_CPU_IA32
       //
       // Thunk to x64 then execute image , and then come back...
