@@ -124,6 +124,7 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager):
     def GetPackagesPath(self):
         ''' Return a list of workspace relative paths that should be mapped as edk2 PackagesPath '''
         result = [
+            self.GetWorkspaceRoot (),
             shell_environment.GetBuildVars().GetValue("BASECORE_PATH", ""),
             shell_environment.GetBuildVars().GetValue("MU_PLUS_PATH", ""),
             shell_environment.GetBuildVars().GetValue("MU_TIANO_PATH", "")
