@@ -5,11 +5,10 @@
 ; SPDX-License-Identifier: BSD-2-Clause-Patent
 ;
 
+%include "StackCookie.inc"
+
     DEFAULT REL
     SECTION .text
-
-extern ASM_PFX(__security_check_cookie)
-extern ASM_PFX(__security_cookie)
 
 ;------------------------------------------------------------------------------
 ; EFI_STATUS
@@ -27,31 +26,24 @@ ASM_PFX(CentralRing3JumpPointer):
     ;By the time we are here, it should be everything CPL3 already
 
     ;Note that top of stack at this moment is real jmp point
-    pop     rax
+    push    rbx
 
     ;Plant stack cookie to the stack
-    sub     rsp, 0x10
-    mov     [rsp], rbx
-    mov     rbx, [__security_cookie]
-    xor     rbx, rsp
-    mov     [rsp+8], rbx
+    INJECT_COOKIE
+    mov     rbx, [rsp+0x18]
 
     sub     rsp, 0x28
 
     ;To boot strap this driver, we directly call the entry point worker
-    call    rax
+    call    rbx
 
     ;Restore the stack pointer
     add     rsp, 0x28
 
-    mov     rcx, [rsp+8]
-    xor     rcx, rsp
-    call    __security_check_cookie
-    pop     rbx
-    pop     rbx
+    CHECK_COOKIE
 
     ;Just to restore the stack to be a law-abiding citizen
-    push    rax
+    pop     rbx
 
     ;Once returned, we will get returned status in rax, don't touch it, if you can help
     ;r15 contains call gate selector that was planned ahead
@@ -75,9 +67,7 @@ ASM_PFX(ApRing3JumpPointer):
     sub     rsp, 0x10
 
     ;Plant stack cookie to the stack
-    mov     rax, [__security_cookie]
-    xor     rax, rsp
-    mov     [rsp+8], rax
+    INJECT_COOKIE
 
     mov     rax, rcx
     mov     rcx, rdx
@@ -89,9 +79,7 @@ ASM_PFX(ApRing3JumpPointer):
 
     add     rsp, 0x18
 
-    mov     rcx, [rsp+8]
-    xor     rcx, rsp
-    call    __security_check_cookie
+    CHECK_COOKIE
 
     ;Restore the stack pointer
     add     rsp, 0x10

@@ -39,6 +39,9 @@
   MmSupervisorRing3Broker.c
   MmSupervisorRing3Broker.h
 
+  MmSupervisorPkg/Library/StandaloneMmStackCookieLib/X64Msft/StackCookie.inc |MSFT
+  MmSupervisorPkg/Library/StandaloneMmStackCookieLib/X64Gcc/StackCookie.inc  |GCC
+
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
