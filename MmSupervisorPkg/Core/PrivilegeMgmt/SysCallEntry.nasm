@@ -16,6 +16,8 @@
 ;
 ;------------------------------------------------------------------------------
 
+%include "StackCookie.inc"
+
     DEFAULT REL
     SECTION .text
 
@@ -27,9 +29,6 @@
 %define MM_SUPV_RSP                     0x00
 ; This should be OFFSET_OF (MM_SUPV_SYSCALL_CACHE, SavedUserRsp)
 %define SAVED_USER_RSP                  0x08
-
-extern ASM_PFX(__security_check_cookie)
-extern ASM_PFX(__security_cookie)
 
 extern ASM_PFX(SyscallDispatcher)
 ;------------------------------------------------------------------------------
@@ -93,26 +92,25 @@ ASM_PFX(SyscallCenter):
     mov     es, bx
     mov     fs, bx
 
+    ;Plant stack cookie to the stack,
+    push    rax
+    INJECT_COOKIE
+    mov     rax, [rsp+0x10]
+
     mov     rsi, gs:[SAVED_USER_RSP]     ; Save Ring 3 stack to RSI
     push    rsi                          ; Push Ring 3 stack as Ring3Stack for SyscallDispatcher
     push    rcx                          ; Push return address on stack as CallerAddr for SyscallDispatcher
     mov     rcx, rax
     sub     rsp, 0x20
 
-    ;Plant stack cookie to the stack
-    mov     rax, [__security_cookie]
-    xor     rax, rsp
-    mov     [rsp+8], rax
-
     call    ASM_PFX(SyscallDispatcher)
-
-    mov     rcx, [rsp+8]
-    xor     rcx, rsp
-    call    __security_check_cookie
 
     add     rsp, 0x20
     pop     rcx                          ; Restore SP to avoid stack overflow
     pop     rsi                          ; Restore SI to avoid stack overflow
+
+    CHECK_COOKIE
+    pop     rcx
 
     ;Prepare for ds, es, fs, gs
     xor     rbx, rbx

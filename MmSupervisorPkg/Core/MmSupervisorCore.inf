@@ -94,6 +94,8 @@
   PrivilegeMgmt/SyscallSetup.c
   PrivilegeMgmt/SyscallDispatcher.c
   PrivilegeMgmt/SysCallEntry.nasm
+  MmSupervisorPkg/Library/StandaloneMmStackCookieLib/X64Msft/StackCookie.inc |MSFT
+  MmSupervisorPkg/Library/StandaloneMmStackCookieLib/X64Gcc/StackCookie.inc  |GCC
 
   Request/Request.h
   Request/RequestDispatcher.c

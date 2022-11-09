@@ -15,6 +15,8 @@
 ;
 ;------------------------------------------------------------------------------
 
+%include "StackCookie.inc"
+
     DEFAULT REL
     SECTION .text
 
@@ -43,9 +45,6 @@ extern ASM_PFX(RegisteredRing3JumpPointer)
 extern ASM_PFX(RegApRing3JumpPointer)
 extern ASM_PFX(RegErrorReportJumpPointer)
 
-extern ASM_PFX(__security_check_cookie)
-extern ASM_PFX(__security_cookie)
-
 ;------------------------------------------------------------------------------
 ; EFI_STATUS
 ; EFIAPI
@@ -58,6 +57,9 @@ extern ASM_PFX(__security_cookie)
 ;------------------------------------------------------------------------------
 global ASM_PFX(InvokeDemotedDriverEntryPoint)
 ASM_PFX(InvokeDemotedDriverEntryPoint):
+    ;Plant stack cookie to the stack
+    INJECT_COOKIE
+
     ;Preserve all input parameters onto stack
     push    rbx
     push    rbp
@@ -74,11 +76,6 @@ ASM_PFX(InvokeDemotedDriverEntryPoint):
 
     ;Place holder on stack
     sub     rsp, 0x20
-
-    ;Plant stack cookie to the stack
-    mov     rax, [__security_cookie]
-    xor     rax, rsp
-    mov     [rsp+8], rax
 
     call    GetBspCpl3Stack
     mov     r15, rax
@@ -146,10 +143,6 @@ EntryReturnPointer:
     call    RestoreBspCpl0MsrStar
     pop     rax
 
-    mov     rcx, [rsp+8]
-    xor     rcx, rsp
-    call    __security_check_cookie
-
     ;Then offset the stack place holder for function entry
     add     rsp, 0x20
 
@@ -173,6 +166,8 @@ EntryReturnPointer:
     pop     rbp
     pop     rbx
 
+    CHECK_COOKIE
+
     ret
 
 ;------------------------------------------------------------------------------
@@ -188,6 +183,9 @@ EntryReturnPointer:
 ;------------------------------------------------------------------------------
 global ASM_PFX(InvokeDemotedMmHandler)
 ASM_PFX(InvokeDemotedMmHandler):
+    ;Plant stack cookie to the stack
+    INJECT_COOKIE
+
     ;Preserve all input parameters onto stack
     push    rbx
     push    rbp
@@ -204,11 +202,6 @@ ASM_PFX(InvokeDemotedMmHandler):
 
     ;Place holder on stack
     sub     rsp, 0x30
-
-    ;Plant stack cookie to the stack
-    mov     rax, [__security_cookie]
-    xor     rax, rsp
-    mov     [rsp+8], rax
 
     call    GetBspCpl3Stack
     mov     r15, rax
@@ -283,10 +276,6 @@ MmHandlerReturnPointer:
     call    RestoreBspCpl0MsrStar
     pop     rax
 
-    mov     rcx, [rsp+8]
-    xor     rcx, rsp
-    call    __security_check_cookie
-
     ;Then offset the stack place holder for function entry
     add     rsp, 0x30
 
@@ -310,6 +299,8 @@ MmHandlerReturnPointer:
     pop     rbp
     pop     rbx
 
+    CHECK_COOKIE
+
     ret
 
 ;------------------------------------------------------------------------------
@@ -326,6 +317,9 @@ global ASM_PFX(InvokeDemotedApProcedure)
 global ASM_PFX(ApHandlerReturnPointer)
 
 ASM_PFX(InvokeDemotedApProcedure):
+    ;Plant stack cookie to the stack
+    INJECT_COOKIE
+
     ;Preserve all input parameters onto stack
     push    rbx
     push    rbp
@@ -342,11 +336,6 @@ ASM_PFX(InvokeDemotedApProcedure):
 
     ;Place holder on stack
     sub     rsp, 0x20
-
-    ;Plant stack cookie to the stack
-    mov     rax, [__security_cookie]
-    xor     rax, rsp
-    mov     [rsp+8], rax
 
     push    rcx
     call    GetThisCpl3Stack
@@ -420,10 +409,6 @@ ASM_PFX(ApHandlerReturnPointer):
     call    RestoreCpl0MsrStar
     pop     rax
 
-    mov     rcx, [rsp+8]
-    xor     rcx, rsp
-    call    __security_check_cookie
-
     ;Then offset the stack place holder for function entry
     add     rsp, 0x20
 
@@ -447,6 +432,8 @@ ASM_PFX(ApHandlerReturnPointer):
     pop     rbp
     pop     rbx
 
+    CHECK_COOKIE
+
     ret
 
 ;------------------------------------------------------------------------------
@@ -460,6 +447,9 @@ ASM_PFX(ApHandlerReturnPointer):
 ;------------------------------------------------------------------------------
 global ASM_PFX(InvokeDemotedErrorReport)
 ASM_PFX(InvokeDemotedErrorReport):
+    ;Plant stack cookie to the stack
+    INJECT_COOKIE
+
     ;Preserve all input parameters onto stack
     push    rbx
     push    rbp
@@ -476,11 +466,6 @@ ASM_PFX(InvokeDemotedErrorReport):
 
     ;Place holder on stack
     sub     rsp, 0x30
-
-    ;Plant stack cookie to the stack
-    mov     rax, [__security_cookie]
-    xor     rax, rsp
-    mov     [rsp+8], rax
 
     push    rcx
     call    GetThisCpl3Stack
@@ -554,10 +539,6 @@ ErrorReportReturnPointer:
     call    RestoreCpl0MsrStar
     pop     rax
 
-    mov     rcx, [rsp+8]
-    xor     rcx, rsp
-    call    __security_check_cookie
-
     ;Then offset the stack place holder for function entry
     add     rsp, 0x30
 
@@ -580,6 +561,8 @@ ErrorReportReturnPointer:
     pop     rdi
     pop     rbp
     pop     rbx
+
+    CHECK_COOKIE
 
     ret
 
