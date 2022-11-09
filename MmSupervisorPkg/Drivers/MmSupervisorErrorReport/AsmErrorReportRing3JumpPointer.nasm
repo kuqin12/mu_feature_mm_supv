@@ -5,12 +5,12 @@
 ; SPDX-License-Identifier: BSD-2-Clause-Patent
 ;
 
+%include "StackCookie.inc"
+
     DEFAULT REL
     SECTION .text
 
 extern ASM_PFX(MmSupvErrorReportWorker)
-extern ASM_PFX(__security_check_cookie)
-extern ASM_PFX(__security_cookie)
 
 ;------------------------------------------------------------------------------
 ; EFI_STATUS
@@ -28,9 +28,7 @@ ASM_PFX(RegErrorReportJumpPointer):
     sub     rsp, 0x10
 
     ;Plant stack cookie to the stack
-    mov     rax, [__security_cookie]
-    xor     rax, rsp
-    mov     [rsp+8], rax
+    INJECT_COOKIE
 
     sub     rsp, 0x18
 
@@ -39,9 +37,7 @@ ASM_PFX(RegErrorReportJumpPointer):
 
     add     rsp, 0x18
 
-    mov     rcx, [rsp+8]
-    xor     rcx, rsp
-    call    __security_check_cookie
+    CHECK_COOKIE
 
     ;Restore the stack pointer
     add     rsp, 0x10

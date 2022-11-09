@@ -27,6 +27,8 @@
 
 [Sources]
   MmSupervisorErrorReport.c
+  MmSupervisorPkg/Library/StandaloneMmStackCookieLib/X64Msft/StackCookie.inc |MSFT
+  MmSupervisorPkg/Library/StandaloneMmStackCookieLib/X64Gcc/StackCookie.inc  |GCC
 
 [Sources.X64]
   AsmErrorReportRing3JumpPointer.nasm
