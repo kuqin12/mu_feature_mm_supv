@@ -5,12 +5,12 @@
 ; SPDX-License-Identifier: BSD-2-Clause-Patent
 ;
 
+%include "StackCookie.inc"
+
     DEFAULT REL
     SECTION .text
 
 extern ASM_PFX(_ModuleEntryPointWorker)
-extern ASM_PFX(__security_check_cookie)
-extern ASM_PFX(__security_cookie)
 
 ;------------------------------------------------------------------------------
 ; EFI_STATUS
@@ -26,9 +26,7 @@ ASM_PFX(_ModuleEntryPoint):
     ;By the time we are here, it should be everything CPL3 already
 
     ;Plant stack cookie to the stack
-    mov     rax, [__security_cookie]
-    xor     rax, rsp
-    push    rax
+    INJECT_COOKIE
 
     sub     rsp, 0x20
 
@@ -38,9 +36,7 @@ ASM_PFX(_ModuleEntryPoint):
     ;Restore the stack pointer
     add     rsp, 0x20
 
-    pop     rcx
-    xor     rcx, rsp
-    call    __security_check_cookie
+    CHECK_COOKIE
 
     ;Once returned, we will get returned status in rax, don't touch it, if you can help
     ;r15 contains call gate selector that was planned ahead
