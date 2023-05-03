@@ -671,7 +671,7 @@ MmDispatcher (
       DEBUG ((DEBUG_INFO, "StartImage - 0x%x (Standalone Mode)\n", DriverEntry->ImageEntryPoint));
       Status = InvokeDemotedDriverEntryPoint (
                  (MM_IMAGE_ENTRY_POINT *)DriverEntry->ImageEntryPoint,
-                 DriverEntry->ImageHandle,
+                 NULL,
                  gMmUserMmst
                  );
       if (EFI_ERROR (Status)) {
