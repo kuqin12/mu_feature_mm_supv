@@ -457,6 +457,7 @@ UnSetIoBitmapRange (
 
 **/
 VOID
+EFIAPI
 SetMsrBitmap (
   IN UINT32  MsrIndex,
   IN BOOLEAN MsrWrite
