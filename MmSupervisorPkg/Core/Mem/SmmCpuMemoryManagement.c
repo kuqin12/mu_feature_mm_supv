@@ -17,6 +17,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/BaseLib.h>
 #include <Library/CpuLib.h>
 #include <Library/SortLib.h>
+#include <Library/HobLib.h>
 #include <Library/SmmCpuPlatformHookLib.h>
 #include <Library/ResetSystemLib.h>
 
@@ -1383,7 +1384,8 @@ PatchMmUserSpecialPurposeRegion (
   //
   // Patch MM Supervisor Prepared/Maintained user pages
   //
-  EFI_STATUS  Status;
+  EFI_STATUS            Status;
+  EFI_PEI_HOB_POINTERS  Hob;
 
   DEBUG ((DEBUG_INFO, "%a - Enter\n", __FUNCTION__));
 
@@ -1399,6 +1401,41 @@ PatchMmUserSpecialPurposeRegion (
              (EFI_MEMORY_RO | EFI_MEMORY_XP)
              );
   ASSERT_EFI_ERROR (Status);
+
+  // Marking reported FV regions as user RO and XP pages, in case user modules need them.
+  Hob.Raw = GetHobList ();
+  if (Hob.Raw == NULL) {
+    return;
+  }
+
+  do {
+    Hob.Raw = GetNextHob (EFI_HOB_TYPE_FV, Hob.Raw);
+    if (Hob.Raw != NULL) {
+      DEBUG ((
+        DEBUG_INFO,
+        "[%a] Processing FV Hob at 0x%x. Size is 0x%x.\n",
+        __FUNCTION__,
+        (UINTN)Hob.FirmwareVolume->BaseAddress,
+        Hob.FirmwareVolume->Length
+        ));
+
+      Status = SmmClearMemoryAttributes (
+                (EFI_PHYSICAL_ADDRESS)(UINTN)Hob.FirmwareVolume->BaseAddress,
+                (Hob.FirmwareVolume->Length + EFI_PAGE_MASK) & ~EFI_PAGE_MASK,
+                (EFI_MEMORY_RP | EFI_MEMORY_SP)
+                );
+      ASSERT_EFI_ERROR (Status);
+
+      Status = SmmSetMemoryAttributes (
+                (EFI_PHYSICAL_ADDRESS)(UINTN)Hob.FirmwareVolume->BaseAddress,
+                (Hob.FirmwareVolume->Length + EFI_PAGE_MASK) & ~EFI_PAGE_MASK,
+                (EFI_MEMORY_RO | EFI_MEMORY_XP)
+                );
+      ASSERT_EFI_ERROR (Status);
+
+      Hob.Raw = GetNextHob (EFI_HOB_TYPE_FV, GET_NEXT_HOB (Hob));
+    }
+  } while (Hob.Raw != NULL);
 
   DEBUG ((DEBUG_INFO, "%a - Exit - %r\n", __FUNCTION__, Status));
 }
