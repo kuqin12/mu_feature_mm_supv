@@ -14,6 +14,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <PiPei.h>
 #include <PiMm.h>
 
+#include <Ppi/MmPlatformHobOverride.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/MemoryAllocationLib.h>
@@ -25,10 +26,72 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/MmCommBuffer.h>
 #include <Guid/MmCommonRegion.h>
 
-EFI_PEI_PPI_DESCRIPTOR  MmCommunicationBuffPpi = {
-  (EFI_PEI_PPI_DESCRIPTOR_PPI | EFI_PEI_PPI_DESCRIPTOR_TERMINATE_LIST),
-  &gMmCommunicationBufferReadyPpiGuid,
-  NULL
+UINTN
+GetHobListSize (
+  IN VOID  *HobStart
+  )
+{
+  EFI_PEI_HOB_POINTERS  Hob;
+
+  ASSERT (HobStart != NULL);
+
+  Hob.Raw = (UINT8 *)HobStart;
+  while (!END_OF_HOB_LIST (Hob)) {
+    Hob.Raw = GET_NEXT_HOB (Hob);
+  }
+
+  //
+  // Need plus END_OF_HOB_LIST
+  //
+  return (UINTN)Hob.Raw - (UINTN)HobStart + sizeof (EFI_HOB_GENERIC_HEADER);
+}
+
+EFI_STATUS
+EFIAPI
+MmIplBuildOverrideHobList (
+  IN     CONST MM_PLATFORM_HOB_OVERRIDE_PPI  *This,
+  IN OUT VOID                                *HobBuffer,
+  IN OUT UINTN                               *HobBufferSize
+  )
+{
+  VOID  *HobList;
+  UINTN              HobLength;
+
+  if ((This == NULL) || (HobBufferSize == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  HobLength = 0;
+
+  HobList = GetHobList ();
+  HobLength = GetHobListSize (HobList);
+  if ((HobBuffer == NULL) || (*HobBufferSize < HobLength)) {
+    // If the provided buffer is too small, return the required size.
+    *HobBufferSize = HobLength;
+    return EFI_BUFFER_TOO_SMALL;
+  }
+
+  // Copy the HOB list to the provided buffer.
+  CopyMem (HobBuffer, HobList, HobLength);
+  *HobBufferSize = HobLength;
+  return EFI_SUCCESS;
+}
+
+MM_PLATFORM_HOB_OVERRIDE_PPI  mMmPlatformHobOverride = {
+  .BuildHobList = MmIplBuildOverrideHobList
+};
+
+EFI_PEI_PPI_DESCRIPTOR  MmCommunicationBuffPpi[] = {
+  {
+    EFI_PEI_PPI_DESCRIPTOR_PPI,
+    &gMmPlatformHobOverridePpiGuid,
+    &mMmPlatformHobOverride
+  },
+  {
+    (EFI_PEI_PPI_DESCRIPTOR_PPI | EFI_PEI_PPI_DESCRIPTOR_TERMINATE_LIST),
+    &gMmCommunicationBufferReadyPpiGuid,
+    NULL
+  }
 };
 
 /**
@@ -144,7 +207,7 @@ MmCommunicationBufferPeiEntry (
   //
   // Notify others that the communication buffer is ready to go
   //
-  Status = PeiServicesInstallPpi (&MmCommunicationBuffPpi);
+  Status = PeiServicesInstallPpi (MmCommunicationBuffPpi);
   ASSERT_EFI_ERROR (Status);
 
 Done:

@@ -29,6 +29,7 @@
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
   MmSupervisorPkg/MmSupervisorPkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
 
 [LibraryClasses]
   PeimEntryPoint
@@ -45,6 +46,7 @@
 
 [Ppis]
   gMmCommunicationBufferReadyPpiGuid            ## PRODUCES
+  gMmPlatformHobOverridePpiGuid
 
 [Pcd]
   gMmSupervisorPkgTokenSpaceGuid.PcdSupervisorCommBufferPages           ## CONSUMES
