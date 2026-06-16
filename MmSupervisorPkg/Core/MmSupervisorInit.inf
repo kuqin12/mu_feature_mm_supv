@@ -13,11 +13,11 @@
 [Defines]
   INF_VERSION                    = 0x0001001A
   BASE_NAME                      = MmSupervisorInit
-  FILE_GUID                      = A41AD2F6-78D4-47C9-AEF1-B623D0734D63
+  FILE_GUID                      = 7C2B4E90-6F15-4AD3-B91C-0A773E825D46
   MODULE_TYPE                    = MM_CORE_STANDALONE
   VERSION_STRING                 = 19.002
   PI_SPECIFICATION_VERSION       = 0x00010032
-  ENTRY_POINT                    = MmSupervisorMain
+  ENTRY_POINT                    = MmSupervisorEntryPoint
 
   #MmSupervisor driver version definition: version = Major.Minor
   #Major: major version is one or two digits from 0 to 99
@@ -38,6 +38,10 @@
   # Init-only entry point and shared core header
   MmSupervisorInit.c
   MmSupervisorCore.h
+
+  # Assembly entry stub that forwards RCX/RDX (FoundationEntryPoint, HobStart)
+  # to MmSupervisorMain unchanged.
+  MmSupervisorEntry.nasm
 
   # Init-side copies of files that diverge from Core/. These will be split into
   # shared / *_core / *_init pieces in subsequent slices; for now they remain
@@ -128,7 +132,11 @@
   MemLib
   PeCoffLib
   ReportStatusCodeLib
-  StandaloneMmCoreEntryPoint
+  # USER_DEFINED modules use a custom (assembly) entry point and therefore do not
+  # pull in the DynamicStackCookieEntryPointLib that normally injects StackCheckLib
+  # for standard module types. Declare it explicitly so the compiler-emitted stack
+  # cookie intrinsics (__security_check_cookie / __report_rangecheckfailure) resolve.
+  StackCheckLib
   MtrrLib
   LocalApicLib
   SynchronizationLib
@@ -255,13 +263,13 @@
   #Subsystem version will be used as MmSupervisor driver version
   #Image version will be used as MmSupervisor security patch level(SPL) value
   #Override the VS2022 RELEASE DLINK_FLAGS so the .data and .rdata sections are not merged
-  MSFT:RELEASE_*_X64_DLINK_FLAGS  == /NOLOGO /NODEFAULTLIB /IGNORE:4001 /IGNORE:4281 /IGNORE:4254 /OPT:REF /OPT:ICF=10 /MAP /SECTION:.xdata,D /SECTION:.pdata,D /Machine:X64 /LTCG /DLL /ENTRY:$(IMAGE_ENTRY_POINT) /SAFESEH:NO /BASE:0 /DRIVER /ALIGN:4096 /DLL
-  MSFT:DEBUG_*_X64_DLINK_FLAGS    == /NOLOGO /NODEFAULTLIB /IGNORE:4001 /IGNORE:4281 /OPT:REF /OPT:ICF=10 /MAP /SECTION:.xdata,D /SECTION:.pdata,D /Machine:X64 /LTCG /DLL /ENTRY:$(IMAGE_ENTRY_POINT) /SAFESEH:NO /BASE:0 /DRIVER /DEBUG /ALIGN:4096 /DLL
+  MSFT:RELEASE_*_X64_DLINK_FLAGS  == /NOLOGO /NODEFAULTLIB /IGNORE:4001 /IGNORE:4281 /IGNORE:4254 /OPT:REF /OPT:ICF=10 /MAP /SECTION:.xdata,D /SECTION:.pdata,D /Machine:X64 /LTCG /DLL /ENTRY:MmSupervisorEntryPoint /SAFESEH:NO /BASE:0 /DRIVER /ALIGN:4096 /DLL
+  MSFT:DEBUG_*_X64_DLINK_FLAGS    == /NOLOGO /NODEFAULTLIB /IGNORE:4001 /IGNORE:4281 /OPT:REF /OPT:ICF=10 /MAP /SECTION:.xdata,D /SECTION:.pdata,D /Machine:X64 /LTCG /DLL /ENTRY:MmSupervisorEntryPoint /SAFESEH:NO /BASE:0 /DRIVER /DEBUG /ALIGN:4096 /DLL
   MSFT:RELEASE_*_*_DLINK_FLAGS    = /DLL /SUBSYSTEM:CONSOLE,$(RELEASE_DRIVER_VERSION) /VERSION:$(MAJOR_PATCH_LEVEL).$(MINOR_PATCH_LEVEL)
   MSFT:DEBUG_*_*_DLINK_FLAGS      = /DLL /SUBSYSTEM:CONSOLE,$(DEBUG_DRIVER_VERSION) /VERSION:$(MAJOR_PATCH_LEVEL).$(MINOR_PATCH_LEVEL)
 
-  GCC:RELEASE_CLANGPDB_X64_DLINK_FLAGS  == /NOLOGO /NODEFAULTLIB /IGNORE:4001 /IGNORE:4254 /OPT:REF /OPT:ICF=10 /ALIGN:4096 /SECTION:.xdata,D /SECTION:.pdata,D /Machine:X64 /DLL /ENTRY:$(IMAGE_ENTRY_POINT) /SAFESEH:NO /BASE:0 /MLLVM:-exception-model=wineh /lldmap
-  GCC:DEBUG_CLANGPDB_X64_DLINK_FLAGS    == /NOLOGO /NODEFAULTLIB /IGNORE:4001 /OPT:REF /OPT:ICF=10 /ALIGN:4096 /Machine:X64 /DLL /ENTRY:$(IMAGE_ENTRY_POINT) /SAFESEH:NO /BASE:0 /DEBUG:GHASH /MLLVM:-exception-model=wineh /lldmap
+  GCC:RELEASE_CLANGPDB_X64_DLINK_FLAGS  == /NOLOGO /NODEFAULTLIB /IGNORE:4001 /IGNORE:4254 /OPT:REF /OPT:ICF=10 /ALIGN:4096 /SECTION:.xdata,D /SECTION:.pdata,D /Machine:X64 /DLL /ENTRY:MmSupervisorEntryPoint /SAFESEH:NO /BASE:0 /MLLVM:-exception-model=wineh /lldmap
+  GCC:DEBUG_CLANGPDB_X64_DLINK_FLAGS    == /NOLOGO /NODEFAULTLIB /IGNORE:4001 /OPT:REF /OPT:ICF=10 /ALIGN:4096 /Machine:X64 /DLL /ENTRY:MmSupervisorEntryPoint /SAFESEH:NO /BASE:0 /DEBUG:GHASH /MLLVM:-exception-model=wineh /lldmap
   GCC:RELEASE_CLANGPDB_*_DLINK_FLAGS    = /DLL /SUBSYSTEM:CONSOLE,$(RELEASE_DRIVER_VERSION) /VERSION:$(MAJOR_PATCH_LEVEL).$(MINOR_PATCH_LEVEL)
   GCC:DEBUG_CLANGPDB_*_DLINK_FLAGS      = /DLL /SUBSYSTEM:CONSOLE,$(DEBUG_DRIVER_VERSION) /VERSION:$(MAJOR_PATCH_LEVEL).$(MINOR_PATCH_LEVEL)
 

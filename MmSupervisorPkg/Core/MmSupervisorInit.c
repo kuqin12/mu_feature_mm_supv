@@ -28,10 +28,26 @@
 PE_COFF_LOADER_IMAGE_CONTEXT  RuntimeSupvImageContext;
 VOID *SmiRendezvous;
 SMM_SUPV_SECURE_POLICY_DATA_V1_0  *MemPolicySnapshot = NULL;
+//
+// Cache copy of HobList pointer.
+//
+VOID  *gHobList = NULL;
 
 EFI_STATUS
 MmCoreFfsFindMmDriver (
   IN  EFI_FIRMWARE_VOLUME_HEADER  *FwVolHeader
+  );
+
+  //
+// Helpers split between Dispatcher_core.c (full implementation) and
+// Dispatcher_init.c (no-op stubs).  See those files for the rationale.
+//
+EFI_STATUS
+MmRegisterLoadedImage (
+  IN OUT EFI_MM_DRIVER_ENTRY            *DriverEntry,
+  IN OUT PE_COFF_LOADER_IMAGE_CONTEXT   *ImageContext,
+  IN     EFI_PHYSICAL_ADDRESS           DstBuffer,
+  IN     UINTN                          PageCount
   );
 
 //
@@ -453,7 +469,8 @@ GetHobListSize (
 **/
 EFI_STATUS
 DiscoverStandaloneMmDriversInFvHobs (
-  IN EFI_PHYSICAL_ADDRESS  *StandaloneBfvAddress
+  IN PE_COFF_LOADER_IMAGE_CONTEXT  *ImageContext,
+  IN EFI_PHYSICAL_ADDRESS          *StandaloneBfvAddress
   )
 {
   UINT16                          ExtHeaderOffset;
@@ -470,6 +487,10 @@ DiscoverStandaloneMmDriversInFvHobs (
   Hob.Raw = GetHobList ();
   if (Hob.Raw == NULL) {
     return EFI_NOT_FOUND;
+  }
+
+  if (ImageContext == NULL || StandaloneBfvAddress == NULL) {
+    return EFI_INVALID_PARAMETER;
   }
 
   do {
@@ -514,31 +535,6 @@ DiscoverStandaloneMmDriversInFvHobs (
 
             *StandaloneBfvAddress = (EFI_PHYSICAL_ADDRESS)(UINTN)FwVolHeader;
 
-            TotalSize = 0;
-            CopyMem (&TotalSize, FileHeader->Size, sizeof (FileHeader->Size));
-
-            Status = MmAllocateSupervisorPages (
-                      AllocateAnyPages,
-                      EfiRuntimeServicesCode,
-                      EFI_SIZE_TO_PAGES (TotalSize),
-                      (EFI_PHYSICAL_ADDRESS *)&InnerFvHeader
-                      );
-            DEBUG ((DEBUG_INFO, "%a Allocating for discovered ffs address: 0x%p, pages: 0x%x\n", __func__, InnerFvHeader, EFI_SIZE_TO_PAGES (TotalSize)));
-            if (EFI_ERROR (Status)) {
-              DEBUG ((DEBUG_ERROR, "Allocating for FwVol out of resources - %r!\n", Status));
-              break;
-            }
-
-            CopyMem ((UINT8 *)InnerFvHeader, FileHeader, TotalSize);
-            if (EFI_ERROR (Status)) {
-              DEBUG ((DEBUG_ERROR, "Copying FFS from FV failed - %r!\n", Status));
-              MmFreePages ((EFI_PHYSICAL_ADDRESS)InnerFvHeader, EFI_SIZE_TO_PAGES (TotalSize));
-              break;
-            }
-
-            Status  = FfsFindSectionData (EFI_SECTION_PE32, InnerFvHeader, &Pe32Data, &Pe32DataSize);
-            DEBUG ((DEBUG_INFO, "Find PE data - 0x%x\n", Pe32Data));
-
             //
             // Allocate a Loaded Image Protocol in MM
             //
@@ -558,12 +554,15 @@ DiscoverStandaloneMmDriversInFvHobs (
             mMmCoreDriverEntry->DepexSize    = 0;
             mMmCoreDriverEntry->Depex        = NULL;
 
-            ZeroMem (&RuntimeSupvImageContext, sizeof (PE_COFF_LOADER_IMAGE_CONTEXT));
+            CopyMem (&RuntimeSupvImageContext, ImageContext, sizeof (PE_COFF_LOADER_IMAGE_CONTEXT));
 
-            Status = MmLoadImage (mMmCoreDriverEntry, &RuntimeSupvImageContext);
+            mMmCoreDriverEntry->ImageBuffer = RuntimeSupvImageContext.ImageAddress;
+            mMmCoreDriverEntry->NumberOfPage   = RuntimeSupvImageContext.ImageSize / EFI_PAGE_SIZE;
+            mMmCoreDriverEntry->ImageEntryPoint = RuntimeSupvImageContext.EntryPoint;
+
+            Status = MmRegisterLoadedImage (mMmCoreDriverEntry, &RuntimeSupvImageContext, RuntimeSupvImageContext.ImageAddress, RuntimeSupvImageContext.ImageSize / EFI_PAGE_SIZE);
             if (EFI_ERROR (Status)) {
-              DEBUG ((DEBUG_ERROR, "%a loading mm image returned %r\n", __func__, Status));
-              PANIC ("Unable to load supervisor, FIMD!!!\n");
+              return Status;
             }
 
             SmiRendezvous = (VOID*)RuntimeSupvImageContext.EntryPoint;
@@ -1005,7 +1004,8 @@ Done:
 EFI_STATUS
 EFIAPI
 MmSupervisorMain (
-  IN VOID  *HobStart
+  IN  PE_COFF_LOADER_IMAGE_CONTEXT  *ImageContext,
+  IN VOID                           *HobStart
   )
 {
   EFI_STATUS                      Status;
@@ -1019,6 +1019,8 @@ MmSupervisorMain (
   UINT64                          StartTicker;
   UINT64                          EndTicker;
   EFI_PHYSICAL_ADDRESS            StandaloneBfvAddress;
+
+  gHobList = HobStart;
 
   MmSupervisorCoreEntryInit ();
 
@@ -1103,7 +1105,7 @@ MmSupervisorMain (
   // Discover Standalone MM drivers for dispatch
   //
   StartTicker = GetPerformanceCounter ();
-  Status      = DiscoverStandaloneMmDriversInFvHobs (&StandaloneBfvAddress);
+  Status      = DiscoverStandaloneMmDriversInFvHobs (ImageContext, &StandaloneBfvAddress);
   EndTicker   = GetPerformanceCounter ();
   if (EFI_ERROR (Status)) {
     ASSERT_EFI_ERROR (Status);
