@@ -27,6 +27,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/MemoryAllocationLib.h>
 #include <Library/CpuLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
+#include <Library/SecurePolicyLib.h>
 
 #include "MmPolicyMeasurementLevels.h"
 
@@ -745,6 +746,16 @@ RequestSecurityPolicy (
   return UNIT_TEST_PASSED;
 }
 
+BOOLEAN
+EFIAPI
+IsBufferInsideMmram (
+  IN EFI_PHYSICAL_ADDRESS  Buffer,
+  IN UINT64                Length
+  )
+{
+  return FALSE;
+}
+
 /*
   Test case to inspect requested policy
 */
@@ -774,7 +785,11 @@ InspectSecurityPolicy (
 
   UT_ASSERT_NOT_NULL (SecurityPolicy);
 
+  DEBUG ((DEBUG_INFO, "Binary Dump of Fetched Security Policy:\n"));
   DUMP_HEX (DEBUG_INFO, 0, SecurityPolicy, SecurityPolicy->Size, "Fetched Security Policy:\n");
+
+  DEBUG ((DEBUG_INFO, "Parsed Security Policy:\n"));
+  DumpSmmPolicyData (SecurityPolicy);
 
   UT_ASSERT_EQUAL (SecurityPolicy->VersionMajor, 0x0001);
 
