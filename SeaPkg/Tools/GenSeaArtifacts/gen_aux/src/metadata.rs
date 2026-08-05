@@ -657,64 +657,179 @@ impl Symbol {
         }
     }
 
-    /// Returns the offset and size of a field in a class.
+    /// Returns the offset and size of a field in a class or union.
     fn find_field_offset_and_size(
         info: &TypeInformation,
         id: &TypeIndex,
         attribute: &str,
         symbol: &str,
     ) -> Result<(u32, u32)> {
+        Self::find_field_offset_and_size_at(info, id, attribute, symbol, 0)
+    }
+
+    /// Walks a dotted field path, transparently descending through wrapper types.
+    ///
+    /// `depth` counts only the wrapper layers that were skipped implicitly, and exists solely to
+    /// stop a malformed PDB from producing an unbounded descent.
+    fn find_field_offset_and_size_at(
+        info: &TypeInformation,
+        id: &TypeIndex,
+        attribute: &str,
+        symbol: &str,
+        depth: u32,
+    ) -> Result<(u32, u32)> {
+        const MAX_WRAPPER_DEPTH: u32 = 32;
+
         let mut parts = attribute.splitn(2, '.');
-        let attribute = parts.next().unwrap_or("");
+        let name = parts.next().unwrap_or("");
         let remaining = parts.next().unwrap_or("");
-        match TypeInfo::find_type(info, *id)?.parse()? {
-            TypeData::Class(class) => {
-                if let Some(fields) = class.fields {
-                    if let pdb::TypeData::FieldList(fields) =
-                        TypeInfo::find_type(info, fields)?.parse()?
-                    {
-                        for field in fields.fields {
-                            if let TypeData::Member(member) = field {
-                                if member.name.to_string() == attribute {
-                                    let size = TypeInfo::from_type_index(info, member.field_type)?
-                                        .total_size();
-                                    if !remaining.is_empty() {
-                                        let (offset, size) = Self::find_field_offset_and_size(
-                                            info,
-                                            &member.field_type,
-                                            remaining,
-                                            symbol,
-                                        )?;
-                                        return Ok((member.offset as u32 + offset, size));
-                                    }
-                                    return Ok((member.offset as u32, size));
-                                }
-                            }
-                        }
-                        return Err(anyhow::anyhow!(
-                            "Field [{}] not found in symbol [{}]",
-                            attribute,
-                            symbol
-                        ));
-                    }
-                    // Theoretically unreachable, unless the pdb file is malformed or there is a bug in the pdb crate
-                    // code.
-                    return Err(anyhow::anyhow!(
-                        "UNEXPECTED: Symbol [{}] fields are not a field list.",
-                        symbol
-                    ));
-                }
+
+        let (field_list, parent_size) = match TypeInfo::find_type(info, *id)?.parse()? {
+            TypeData::Class(class) => match class.fields {
+                Some(fields) => (fields, class.size),
                 // Theoretically unreachable as you cannot have a struct defined without fields in C.
-                Err(anyhow::anyhow!(
-                    "Symbol [{}] is a class, but has no fields.",
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "Symbol [{}] is a class, but has no fields.",
+                        symbol
+                    ))
+                }
+            },
+            // Union members all live at offset 0 within the union, so the same field list walk
+            // applies. Rust wrapper types such as `MaybeUninit<T>` are emitted as unions, and the
+            // fields behind them must stay reachable for key symbols and rules to target them.
+            TypeData::Union(union) => (union.fields, union.size),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Symbol [{}] is not a class or union. Cannot get fields.",
                     symbol
                 ))
             }
-            _ => Err(anyhow::anyhow!(
-                "Symbol [{}] is not a class. Cannot get class fields.",
+        };
+
+        let TypeData::FieldList(fields) = TypeInfo::find_type(info, field_list)?.parse()? else {
+            // Theoretically unreachable, unless the pdb file is malformed or there is a bug in the
+            // pdb crate code.
+            return Err(anyhow::anyhow!(
+                "UNEXPECTED: Symbol [{}] fields are not a field list.",
                 symbol
-            )),
+            ));
+        };
+
+        let mut members = Vec::new();
+        for field in fields.fields {
+            if let TypeData::Member(member) = field {
+                if member.name.to_string() == name {
+                    if !remaining.is_empty() {
+                        let (offset, size) = Self::find_field_offset_and_size_at(
+                            info,
+                            &member.field_type,
+                            remaining,
+                            symbol,
+                            depth,
+                        )?;
+                        return Ok((member.offset as u32 + offset, size));
+                    }
+                    let size = TypeInfo::from_type_index(info, member.field_type)?.total_size();
+                    return Ok((member.offset as u32, size));
+                }
+                members.push((
+                    member.name.to_string().to_string(),
+                    member.offset,
+                    member.field_type,
+                ));
+            }
         }
+
+        // Nothing matched at this level. Rust wraps values in layers that hold no data of their
+        // own - `UnsafeCell`, `ManuallyDrop`, `MaybeUninit` and newtypes all appear in the PDB as
+        // a type whose single populated member starts at offset 0 and spans the whole parent.
+        // Descend through those automatically so config paths only have to name the fields a
+        // reader would recognize from the source. Explicit paths still work, because this runs
+        // only after an exact match fails.
+        if depth < MAX_WRAPPER_DEPTH {
+            if let Some(inner) = Self::transparent_wrapper_member(info, &members, parent_size) {
+                return Self::find_field_offset_and_size_at(info, &inner, attribute, symbol, depth + 1);
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Field [{}] not found in symbol [{}]. Available fields at this level: [{}]",
+            name,
+            symbol,
+            members
+                .iter()
+                .map(|(name, ..)| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
+
+    /// Returns the type of the sole data-carrying member if `members` describes a transparent
+    /// wrapper, meaning exactly one member that begins at offset 0 and covers the full
+    /// `parent_size`. Members are only disregarded when they are provably zero sized, so a
+    /// member that occupies storage can never be stepped over.
+    ///
+    /// Returns `None` whenever the shape is ambiguous or a member size cannot be resolved, so an
+    /// unrecognized layout reports the original "field not found" error rather than guessing.
+    fn transparent_wrapper_member(
+        info: &TypeInformation,
+        members: &[(String, u64, TypeIndex)],
+        parent_size: u64,
+    ) -> Option<TypeIndex> {
+        if parent_size == 0 {
+            return None;
+        }
+
+        let mut payload = None;
+        for (_, offset, field_type) in members {
+            if Self::is_provably_zero_sized(info, *field_type) {
+                continue;
+            }
+            if payload.is_some() {
+                return None;
+            }
+            // Any member that is not provably empty must account for the whole parent, otherwise
+            // this is a real aggregate and stepping through it would skip storage.
+            let size = TypeInfo::from_type_index(info, *field_type).ok()?.total_size();
+            if *offset != 0 || size as u64 != parent_size {
+                return None;
+            }
+            payload = Some(*field_type);
+        }
+        payload
+    }
+
+    /// Returns whether `index` refers to a type that provably occupies no storage.
+    ///
+    /// Only a complete aggregate definition that records a size of zero qualifies. A computed
+    /// size of zero is deliberately not accepted, because several type encodings yield zero when
+    /// the size is merely unknown: `PrimitiveKind::NoType`, and arrays whose declared byte length
+    /// is smaller than one element. Forward references are rejected as well, since their size is
+    /// a placeholder rather than a statement about the real definition.
+    fn is_provably_zero_sized(info: &TypeInformation, index: TypeIndex) -> bool {
+        // Bound the walk so a malformed PDB cannot produce an unbounded modifier chain.
+        const MAX_MODIFIER_DEPTH: u32 = 32;
+
+        let mut index = index;
+        for _ in 0..MAX_MODIFIER_DEPTH {
+            let Ok(data) = TypeInfo::find_type(info, index).and_then(|item| Ok(item.parse()?))
+            else {
+                return false;
+            };
+            match data {
+                // Qualifiers do not change the size of the underlying type.
+                TypeData::Modifier(modifier) => index = modifier.underlying_type,
+                TypeData::Class(class) => {
+                    return class.size == 0 && !class.properties.forward_reference()
+                }
+                TypeData::Union(union) => {
+                    return union.size == 0 && !union.properties.forward_reference()
+                }
+                _ => return false,
+            }
+        }
+        false
     }
 }
 
@@ -868,34 +983,47 @@ impl TypeInfo {
         let data = finder.find(index)?;
         let item = data.parse()?;
 
-        // Return the item as-is if it is anything other than a class, or if it
-        // is a class that is not a zero-size forward reference.
-        let class_name;
-        if let TypeData::Class(d) = item {
-            if d.size != 0 {
-                return Ok(data);
+        // Return the item as-is if it is anything other than a class or union, or if it
+        // is a class/union that is not a zero-size forward reference.
+        let type_name;
+        match item {
+            TypeData::Class(d) => {
+                if d.size != 0 {
+                    return Ok(data);
+                }
+                // A size-0 class that is a complete definition (not a forward
+                // reference) is a genuine zero-sized type. Return it as-is.
+                if !d.properties.forward_reference() {
+                    return Ok(data);
+                }
+                type_name = d.name.to_string().to_string();
             }
-            // A size-0 class that is a complete definition (not a forward
-            // reference) is a genuine zero-sized type. Return it as-is.
-            if !d.properties.forward_reference() {
-                return Ok(data);
+            // Unions are forward referenced the same way classes are. Without this the
+            // `fields` index of the forward reference is used, which does not point at a
+            // field list, so members of the real definition are unreachable.
+            TypeData::Union(d) => {
+                if d.size != 0 {
+                    return Ok(data);
+                }
+                if !d.properties.forward_reference() {
+                    return Ok(data);
+                }
+                type_name = d.name.to_string().to_string();
             }
-            class_name = d.name.to_string().to_string();
-        } else {
-            return Ok(data);
+            _ => return Ok(data),
         }
 
-        // The type was a size-0 forward-reference class, so it should have a
-        // shadow class with the real information.
+        // The type was a size-0 forward-reference class or union, so it should have a
+        // shadow definition with the real information.
         let mut iter = info.iter();
         let item = iter.find(|item| {
             let item = item.parse()?;
             if let Some(name) = item.name() {
-                if name.to_string() == class_name {
-                    if let TypeData::Class(data) = item {
-                        if data.size != 0 {
-                            return Ok(true);
-                        }
+                if name.to_string() == type_name {
+                    match item {
+                        TypeData::Class(data) if data.size != 0 => return Ok(true),
+                        TypeData::Union(data) if data.size != 0 => return Ok(true),
+                        _ => {}
                     }
                 }
             }
@@ -904,7 +1032,35 @@ impl TypeInfo {
         if let Ok(Some(item)) = item {
             return Ok(item);
         }
-        Err(anyhow!("Symbol {} was found, but size was 0", class_name))
+
+        // The forward reference may describe a type whose real definition is genuinely zero
+        // sized, such as Rust's unit type `tuple$<>`. No non-zero-sized definition can exist for
+        // those, so accept a complete (non-forward-reference) definition instead. A forward
+        // reference with no definition at all still falls through to the error below, so a
+        // genuinely missing type is not masked.
+        let mut iter = info.iter();
+        let item = iter.find(|item| {
+            let item = item.parse()?;
+            if let Some(name) = item.name() {
+                if name.to_string() == type_name {
+                    match item {
+                        TypeData::Class(data) if !data.properties.forward_reference() => {
+                            return Ok(true)
+                        }
+                        TypeData::Union(data) if !data.properties.forward_reference() => {
+                            return Ok(true)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Ok(false)
+        });
+        if let Ok(Some(item)) = item {
+            return Ok(item);
+        }
+
+        Err(anyhow!("Symbol {} was found, but size was 0", type_name))
     }
 
     /// Returns the size of a primitive type in bytes.
@@ -1844,6 +2000,31 @@ mod test {
         let result = Symbol::find_field_offset_and_size(type_info, &type_index, field, symbol);
         assert!(result.is_err_and(|err| err
             .to_string()
-            .contains("Symbol [mMapDepth] is not a class. Cannot get class fields.")));
+            .contains("Symbol [mMapDepth] is not a class or union. Cannot get fields.")));
+    }
+
+    #[test]
+    fn test_symbol_is_provably_zero_sized_rejects_types_that_occupy_storage() {
+        let mut metadata = build_metadata();
+        let type_info = &metadata.pdb.type_information().unwrap();
+
+        // An aggregate that holds data is never treated as empty, so the transparent wrapper
+        // descent can never step over it.
+        let class_index = metadata
+            .find_symbol("mRootMmiEntry")
+            .type_info
+            .type_id()
+            .unwrap();
+        assert!(!Symbol::is_provably_zero_sized(type_info, class_index));
+
+        // Non-aggregates are rejected as well. Several encodings report a computed size of zero
+        // when the size is merely unknown, so only an explicit zero-sized aggregate definition
+        // counts as proof.
+        let scalar_index = metadata
+            .find_symbol("mMapDepth")
+            .type_info
+            .type_id()
+            .unwrap();
+        assert!(!Symbol::is_provably_zero_sized(type_info, scalar_index));
     }
 }
