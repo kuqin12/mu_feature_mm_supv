@@ -31,3 +31,4 @@
 
 [BuildOptions]
   MSFT:*_*_*_CC_FLAGS = /GL-
+  CLANGPDB:*_*_*_CC_FLAGS = -fno-lto
