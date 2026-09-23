@@ -46,6 +46,7 @@ impl Coverage {
         aux_file: &AuxFile,
         metadata: &mut PdbMetadata<'a, S>,
     ) -> anyhow::Result<Self> {
+        aux_file.validate_entry_ranges()?;
         let size_of_image = metadata.image_size() as u32;
 
         let mut sections = SectionList::new(size_of_image);
@@ -603,7 +604,11 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
-    use crate::{file::ImageValidationEntryHeader, metadata};
+    use crate::{
+        config::{Array, ConfigFile, Rule},
+        file::ImageValidationEntryHeader,
+        metadata,
+    };
 
     fn create_metadata() -> metadata::PdbMetadata<'static, Cursor<&'static [u8]>> {
         let pdb = include_bytes!("../resources/test/example.pdb");
@@ -612,6 +617,125 @@ mod tests {
             panic!("Failed to create PdbMetadata");
         };
         metadata
+    }
+
+    fn build_rules(
+        metadata: &mut PdbMetadata<'static, Cursor<&'static [u8]>>,
+        rules: &[Rule],
+    ) -> AuxFile {
+        let mut aux = AuxFile::default();
+        for rule in rules {
+            for (entry, data) in metadata.build_entries(rule).unwrap() {
+                aux.add_entry(entry, &data);
+            }
+        }
+        aux.finalize();
+        aux
+    }
+
+    #[test]
+    fn test_coverage_rejects_overlapping_symbol_and_field_rules() {
+        for fields in [
+            [None, None],
+            [None, Some("Data1")],
+            [Some("Data1"), None],
+        ] {
+            let mut metadata = create_metadata();
+            let rules = fields.map(|field| Rule {
+                symbol: "gMpInformation2HobGuid".to_string(),
+                field: field.map(str::to_string),
+                ..Default::default()
+            });
+            let aux = build_rules(&mut metadata, &rules);
+            let error = Coverage::build(&aux, &mut metadata)
+                .err()
+                .expect("overlapping rules must be rejected");
+            assert!(error.to_string().contains("Overlapping validation entries"));
+        }
+    }
+
+    #[test]
+    fn test_coverage_rejects_overlapping_union_member_rules() {
+        for fields in [
+            ["HeapGuardPoolType.Data", "HeapGuardPoolType.Fields"],
+            ["HeapGuardPoolType.Fields", "HeapGuardPoolType.Data"],
+        ] {
+            let mut metadata = create_metadata();
+            let rules = fields.map(|field| Rule {
+                symbol: "gMmMps".to_string(),
+                field: Some(field.to_string()),
+                ..Default::default()
+            });
+            let aux = build_rules(&mut metadata, &rules);
+            let error = Coverage::build(&aux, &mut metadata)
+                .err()
+                .expect("union members sharing storage must be rejected");
+            assert!(error.to_string().contains("Overlapping validation entries"));
+        }
+    }
+
+    #[test]
+    fn test_coverage_checks_expanded_nested_array_ranges() {
+        for (indices, overlaps) in [
+            ([1..=2, 2..=3], true),
+            ([2..=3, 1..=2], true),
+            ([1..=2, 3..=4], false),
+            ([3..=4, 1..=2], false),
+        ] {
+            let mut metadata = create_metadata();
+            let rules = indices.map(|index| Rule {
+                symbol: "gSmiMtrrs".to_string(),
+                field: Some("Variables.Mtrr".to_string()),
+                array: Some(Array {
+                    field: Some("Mask".to_string()),
+                    index: Some(index),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+            let aux = build_rules(&mut metadata, &rules);
+            let result = Coverage::build(&aux, &mut metadata);
+            if overlaps {
+                assert!(result
+                    .err()
+                    .expect("overlapping array selections must be rejected")
+                    .to_string()
+                    .contains("Overlapping validation entries"));
+            } else {
+                assert!(result.is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn test_coverage_checks_only_active_scopes_for_overlaps() {
+        for scopes in [vec!["DEBUG"], vec!["RELEASE"], vec!["DEBUG", "RELEASE"]] {
+            let mut config = ConfigFile {
+                rules: ["DEBUG", "RELEASE"]
+                    .map(|scope| Rule {
+                        symbol: "gMpInformation2HobGuid".to_string(),
+                        scope: Some(scope.to_string()),
+                        ..Default::default()
+                    })
+                    .into(),
+                ..Default::default()
+            };
+            config
+                .filter_by_scopes(&scopes.iter().map(|scope| scope.to_string()).collect::<Vec<_>>())
+                .unwrap();
+            let mut metadata = create_metadata();
+            let aux = build_rules(&mut metadata, &config.rules);
+            let result = Coverage::build(&aux, &mut metadata);
+            if scopes.len() == 2 {
+                assert!(result
+                    .err()
+                    .expect("both scopes active should expose the overlap")
+                    .to_string()
+                    .contains("Overlapping validation entries"));
+            } else {
+                assert!(result.is_ok());
+            }
+        }
     }
 
     #[test]

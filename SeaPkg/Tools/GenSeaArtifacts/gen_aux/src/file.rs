@@ -49,6 +49,46 @@ impl AuxFile {
         self.key_symbols.push(key_symbol);
     }
 
+    /// Rejects overlapping nonempty entry ranges without changing entry or default-data order.
+    pub fn validate_entry_ranges(&self) -> anyhow::Result<()> {
+        let mut ranges = Vec::new();
+        for (index, entry) in self.entries.iter().enumerate() {
+            if entry.size == 0 {
+                continue;
+            }
+            let end = entry.offset.checked_add(entry.size).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Validation entry {} at {:#x} with size {:#x} exceeds the RVA address range.",
+                    index + 1,
+                    entry.offset,
+                    entry.size
+                )
+            })?;
+            ranges.push((entry.offset, end, index));
+        }
+        ranges.sort_unstable_by_key(|&(start, _, index)| (start, index));
+
+        for pair in ranges.windows(2) {
+            let (start, end, index) = pair[0];
+            let (next_start, next_end, next_index) = pair[1];
+            if next_start < end {
+                return Err(anyhow::anyhow!(
+                    "Overlapping validation entries {} ({}, [{:#x}..{:#x})) and {} ({}, \
+                     [{:#x}..{:#x})). Rules must cover disjoint byte ranges.",
+                    index + 1,
+                    self.entries[index].validation_type,
+                    start,
+                    end,
+                    next_index + 1,
+                    self.entries[next_index].validation_type,
+                    next_start,
+                    next_end
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Finalizes the aux file by calculating and setting valid offsets and sizes throughout the file.
     pub fn finalize(&mut self) {
         // Reset values if we want to reuse the aux file.
@@ -99,14 +139,16 @@ impl AuxFile {
 
     /// Writes the aux file to the given file path.
     pub fn to_file(&self, file_path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+        let bytes = self.to_bytes()?;
         let mut file = std::fs::File::create(file_path)?;
-        file.write_all(&self.to_bytes()?)?;
+        file.write_all(&bytes)?;
 
         Ok(())
     }
 
     /// Writes the aux file to a byte vector.
     pub fn to_bytes(&self) -> anyhow::Result<Vec<u8>> {
+        self.validate_entry_ranges()?;
         let mut buffer = vec![0; self.header.size as usize];
         buffer.gwrite_with(self, &mut 0, scroll::LE)?;
         Ok(buffer)
@@ -363,6 +405,94 @@ mod tests {
 
     use std::fmt::Write;
     use std::io::{BufReader, Read};
+
+    fn aux_file_with_ranges(ranges: &[(u32, u32)]) -> AuxFile {
+        let mut aux = AuxFile::default();
+        for &(offset, size) in ranges {
+            aux.add_entry(
+                ImageValidationEntryHeader {
+                    offset,
+                    size,
+                    ..Default::default()
+                },
+                &vec![0; size as usize],
+            );
+        }
+        aux.finalize();
+        aux
+    }
+
+    #[test]
+    fn test_aux_file_rejects_overlapping_ranges_in_either_order() {
+        for (left, right) in [
+            ((0x1000, 0x10), (0x1000, 0x10)),
+            ((0x1000, 0x10), (0x1000, 4)),
+            ((0x1000, 0x10), (0x1004, 4)),
+            ((0x1000, 0x10), (0x100c, 4)),
+            ((0x1000, 0x10), (0x1008, 0x10)),
+        ] {
+            for ranges in [[left, right], [right, left]] {
+                let mut aux = aux_file_with_ranges(&ranges);
+                aux.entries[1].validation_type = ValidationType::NonZero;
+                let error = aux.validate_entry_ranges().unwrap_err().to_string();
+                assert!(error.contains("Overlapping validation entries"), "{error}");
+                assert!(error.contains("None"), "{error}");
+                assert!(error.contains("NonZero"), "{error}");
+                assert!(error.contains("0x1000"), "{error}");
+                assert!(aux.to_bytes().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_aux_file_accepts_adjacent_disjoint_and_empty_ranges() {
+        let aux = aux_file_with_ranges(&[
+            (0x1020, 4),
+            (0x1004, 4),
+            (0x1000, 4),
+            (0x1002, 0),
+            (0x1000, 0),
+            (u32::MAX, 0),
+        ]);
+        aux.validate_entry_ranges().unwrap();
+        let bytes = aux.to_bytes().unwrap();
+        assert_eq!(
+            aux.entries.iter().map(|entry| entry.offset).collect::<Vec<_>>(),
+            vec![0x1020, 0x1004, 0x1000, 0x1002, 0x1000, u32::MAX]
+        );
+        assert!(!bytes.is_empty());
+        AuxFile::default().validate_entry_ranges().unwrap();
+    }
+
+    #[test]
+    fn test_aux_file_rejects_overflowing_entry_ranges() {
+        let aux = AuxFile {
+            entries: vec![ImageValidationEntryHeader {
+                offset: u32::MAX - 1,
+                size: 4,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(aux
+            .validate_entry_ranges()
+            .unwrap_err()
+            .to_string()
+            .contains("exceeds the RVA address range"));
+    }
+
+    #[test]
+    fn test_aux_file_does_not_write_overlapping_entries() {
+        let aux = aux_file_with_ranges(&[(0x1000, 8), (0x1004, 8)]);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("test.aux");
+        assert!(aux.to_file(&path).is_err());
+        assert!(!path.exists());
+
+        std::fs::write(&path, b"existing output").unwrap();
+        assert!(aux.to_file(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"existing output");
+    }
 
     #[test]
     fn test_key_symbol_signature_creation() {

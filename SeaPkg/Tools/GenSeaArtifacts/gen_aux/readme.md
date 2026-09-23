@@ -107,6 +107,18 @@ the final report.
 - `last-reviewed`: The date this rule was last reviewed, with the format YYYY-MM-DD.
 - `remarks`: Additional context to this rule / symbol and why the validation type was selected.
 
+#### Overlapping rules
+
+After scope filtering and array expansion, validation entries must cover disjoint byte ranges.
+Both `create-aux` and `test-aux` reject duplicate, nested, and partially overlapping ranges in
+either rule order, even with `no_missing_rules = false`. This also applies to `validation.type = "none"`:
+a whole-object revert rule cannot be combined with rules for fields inside that object.
+
+Adjacent ranges are allowed. Rules for union members or bitfields sharing storage bytes must be
+replaced with a single rule for that storage, rather than separate overlapping entries. Disjoint
+array elements and rules in mutually exclusive scopes remain supported. Errors identify the
+one-based expanded entry numbers, validation types, and half-open RVA ranges `[start, end)`.
+
 #### Validation Type: None
 
 The None validation type tells the system to perform no verification on this symbol. This rule is available for symbols

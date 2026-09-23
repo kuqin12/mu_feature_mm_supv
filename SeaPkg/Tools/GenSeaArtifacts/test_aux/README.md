@@ -31,6 +31,10 @@ the tool prints a warning and runs the available tests; uncovered regions are no
 nonzero reference-image bytes are reported with their addresses and contents even though no
 validation entry exists for them.
 
+Overlapping validation entries are always an error, regardless of `no_missing_rules`. This includes
+a whole-object `none` rule combined with rules for fields inside it. Only rules selected by the
+active scopes are checked, after array expansion.
+
 As mentioned above, the `-c`, `--config` argument is to pass in a configuration file that contains the information from
 a run log of the given mm supervisor core.
 
