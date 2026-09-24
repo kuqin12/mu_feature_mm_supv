@@ -35,6 +35,11 @@ Overlapping validation entries are always an error, regardless of `no_missing_ru
 a whole-object `none` rule combined with rules for fields inside it. Only rules selected by the
 active scopes are checked, after array expansion.
 
+The optional `bytes = { offset = ..., size = ... }` rule setting selects a bounded byte slice relative
+to the resolved symbol, field, or array element. A `none` rule for such a slice restores only those
+reference-image bytes without labeling them as padding. Bounds and overlap checks are identical to
+`create-aux`; see [explicit byte slices](../gen_aux/readme.md#explicit-byte-slices).
+
 As mentioned above, the `-c`, `--config` argument is to pass in a configuration file that contains the information from
 a run log of the given mm supervisor core.
 

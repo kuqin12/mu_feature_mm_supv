@@ -87,6 +87,7 @@ field = 'Optional[String]'
 array.field = 'Optional[String]'
 array.index = 'Optional[Int]'|'Optional[Array[Int;2]]'
 array.sentinel = 'Optional[Boolean]'
+bytes = { offset = 0, size = 6 } # Optional byte slice; both values are required when present.
 validation.type = 'Required[String]'
 reviewed-by = 'Optional[Array[String]]'
 last-reviewed = 'Optional[String]'
@@ -100,6 +101,9 @@ remarks = 'Optional[String]'
 - `array.field`: Names a field inside each array element. Leave unset to apply the rule to each whole element.
 - `array.index`: Only apply the rule to the specified index of the array, or inclusive range.
 - `array.sentinel`: Apply content rule to only the final rule such that its content must be all zeros.
+- `bytes`: Restrict each resolved symbol, field, or selected array element to a nonempty byte slice.
+  `offset` is relative to that selected storage, not the image or the start of the entire array.
+  `size` is the number of bytes; the slice must fit within the selected storage.
 - `validation.type`: The type of validation to perform on this symbol. Different values may also require additional configuration
 settings in the `[[rule]]`.
 - `reviewed-by`: A list of reviewers using git sign-off format of `First Last <email>`. This value is passed through to
@@ -118,6 +122,34 @@ Adjacent ranges are allowed. Rules for union members or bitfields sharing storag
 replaced with a single rule for that storage, rather than separate overlapping entries. Disjoint
 array elements and rules in mutually exclusive scopes remain supported. Errors identify the
 one-based expanded entry numbers, validation types, and half-open RVA ranges `[start, end)`.
+
+#### Explicit byte slices
+
+Use `bytes` when storage needs a rule but has no suitable field path, for example the remainder of
+an enum/union object after its discriminator and named fields have separate rules:
+
+``` toml
+[[rule]]
+symbol = "state"
+field = "enum_storage"
+bytes = { offset = 0x2a, size = 0x6 }
+validation.type = "none"
+remarks = "Restore enum storage not covered by the selected variant's field rules."
+```
+
+This is an explicit storage rule, not a padding assertion. With `validation.type = "none"`, only the
+selected bytes are restored from the reference image; their contents are not validated or assumed
+to be zero. Other rules must validate any required discriminator and fields. Replace a whole-object
+scaffold with the slice rather than retaining overlapping rules.
+
+The offset and size must be nonnegative 32-bit integers, size must be nonzero, and the complete slice
+must fit inside the resolved storage. For arrays, the same slice is applied to each selected element
+(or its `array.field`), preserving the array stride. For a map-only symbol, the slice is bounded by the
+recovered symbol or selected piece. Content/GUID validation must match the sliced size, and all slices
+remain subject to overlap checks. Reports append `.bytes[start..end]` to the selected rule name.
+
+Review explicit slices when the compiler or crate layout changes. Bounds and overlap checks catch
+out-of-range or conflicting slices, but cannot prove that an in-bounds slice still has the same meaning.
 
 #### Validation Type: None
 

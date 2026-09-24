@@ -257,6 +257,13 @@ impl<'a, S: Source<'a> + 'a> PdbMetadata<'a, S> {
                     name += format!(".{}", field).as_str();
                 }
             }
+            if let Some(bytes) = &rule.bytes {
+                name += &format!(
+                    ".bytes[{:#x}..{:#x}]",
+                    bytes.offset,
+                    bytes.offset + bytes.size
+                );
+            }
             self.context_map.insert(
                 entry.offset,
                 Context::new(
@@ -615,13 +622,40 @@ impl<'a, S: Source<'a> + 'a> PdbMetadata<'a, S> {
 
     /// Validates a rule against the symbol it targets, returning the extent it will iterate.
     fn validate_rule(&mut self, symbol: &Symbol, rule: &crate::config::Rule) -> Result<RuleExtent> {
-        let extent = self.rule_extent(symbol, rule)?;
+        let mut extent = self.rule_extent(symbol, rule)?;
 
-        // If the rule is a content rule, make sure that the content size matches the symbol size.
-        if let config::Validation::Content { content } = &rule.validation {
+        if let Some(bytes) = &rule.bytes {
+            if bytes.size == 0
+                || bytes.offset >= extent.size
+                || bytes.size > extent.size - bytes.offset
+            {
+                return Err(anyhow!(
+                    "Invalid Rule Configuration: Symbol {}: Byte slice at offset {:#x} with size \
+                     {:#x} must be nonempty and fit within the selected extent of {:#x} bytes.",
+                    symbol.name(),
+                    bytes.offset,
+                    bytes.size,
+                    extent.size
+                ));
+            }
+            extent.field_offset = extent.field_offset.checked_add(bytes.offset).ok_or_else(|| {
+                anyhow!(
+                    "Invalid Rule Configuration: Symbol {}: Byte slice offset exceeds the RVA address range.",
+                    symbol.name()
+                )
+            })?;
+            extent.size = bytes.size;
+        }
+
+        let content_size = match &rule.validation {
+            config::Validation::Content { content } => Some(content.len()),
+            config::Validation::Guid { guid } => Some(guid.as_bytes().len()),
+            _ => None,
+        };
+        if let Some(content_size) = content_size {
             let size = extent.size;
 
-            if content.len() != size as usize {
+            if content_size != size as usize {
                 let name = if let Some(field) = &rule.field {
                     format!("{}.{}", symbol.name(), field)
                 } else {
@@ -630,7 +664,7 @@ impl<'a, S: Source<'a> + 'a> PdbMetadata<'a, S> {
                 return Err(anyhow::anyhow!(
                     "Invalid Rule Configuration: Symbol {}: Content size {} does not match symbol size {}.",
                     name,
-                    content.len(),
+                    content_size,
                     size
                 ));
             }
@@ -1541,7 +1575,7 @@ mod test {
     use super::*;
 
     use crate::{
-        config::{Array, Key, Rule, Validation},
+        config::{Array, ByteSlice, Key, Rule, Validation},
         file::AuxFile,
         report::Coverage,
     };
@@ -1553,6 +1587,160 @@ mod test {
         let efi = include_bytes!("../resources/test/example.efi");
         PdbMetadata::<'static, Cursor<&'static [u8]>>::new(pdb, efi)
             .expect("Failed to build metadata")
+    }
+
+    #[test]
+    fn test_byte_slice_preserves_reference_bytes_and_reports_selected_range() {
+        let mut metadata = build_metadata();
+        let rule = Rule {
+            symbol: "gMpInformation2HobGuid".to_string(),
+            bytes: Some(ByteSlice { offset: 3, size: 5 }),
+            ..Default::default()
+        };
+        let address = metadata.find_symbol(&rule.symbol).address;
+        let expected = metadata.loaded_image_range(address + 3, address + 8).unwrap().to_vec();
+        assert!(expected.iter().any(|byte| *byte != 0));
+        let entries = metadata.build_entries(&rule).unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0.offset, address + 3);
+        assert_eq!(entries[0].0.size, 5);
+        assert_eq!(entries[0].0.validation_type, file::ValidationType::None);
+        assert_eq!(entries[0].1, expected);
+        assert_eq!(
+            metadata.context_from_address(&(address + 3)).unwrap().name,
+            "gMpInformation2HobGuid.bytes[0x3..0x8]"
+        );
+    }
+
+    #[test]
+    fn test_byte_slice_is_relative_to_the_resolved_field() {
+        let mut metadata = build_metadata();
+        let rule = Rule {
+            symbol: "gMpInformation2HobGuid".to_string(),
+            field: Some("Data4".to_string()),
+            bytes: Some(ByteSlice { offset: 2, size: 6 }),
+            ..Default::default()
+        };
+        let address = metadata.find_symbol(&rule.symbol).address;
+        let entries = metadata.build_entries(&rule).unwrap();
+
+        assert_eq!(entries[0].0.offset, address + 10);
+        assert_eq!(entries[0].0.size, 6);
+        assert_eq!(
+            entries[0].1,
+            metadata.loaded_image_range(address + 10, address + 16).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_byte_slice_rejects_empty_out_of_bounds_and_overflowing_ranges() {
+        let mut metadata = build_metadata();
+        let mut rule = Rule {
+            symbol: "gMpInformation2HobGuid".to_string(),
+            field: Some("Data4".to_string()),
+            ..Default::default()
+        };
+        for bytes in [
+            ByteSlice { offset: 0, size: 0 },
+            ByteSlice { offset: 8, size: 1 },
+            ByteSlice { offset: 7, size: 2 },
+            ByteSlice { offset: u32::MAX, size: 2 },
+            ByteSlice { offset: 1, size: u32::MAX },
+        ] {
+            rule.bytes = Some(bytes);
+            let error = metadata.build_entries(&rule).unwrap_err().to_string();
+            assert!(error.contains("Byte slice"), "{error}");
+            assert!(error.contains("selected extent of 0x8 bytes"), "{error}");
+        }
+        assert!(metadata.context_map.is_empty());
+        rule.bytes = Some(ByteSlice { offset: 0, size: 8 });
+        assert!(metadata.build_entries(&rule).is_ok());
+    }
+
+    #[test]
+    fn test_byte_slice_keeps_array_stride_and_slices_each_selected_field() {
+        for (symbol, field, array_field, count) in [
+            ("mMmSupvPoolLists", None, None, 2),
+            ("mMmSupvPoolLists", None, Some("ForwardLink"), 2),
+            ("gSmiMtrrs", Some("Variables.Mtrr"), Some("Mask"), 2),
+        ] {
+            let mut metadata = build_metadata();
+            let mut rule = Rule {
+                symbol: symbol.to_string(),
+                field: field.map(str::to_string),
+                array: Some(Array {
+                    field: array_field.map(str::to_string),
+                    index: Some(1..=2),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let full_entries = metadata.build_entries(&rule).unwrap();
+            rule.bytes = Some(ByteSlice { offset: 2, size: 4 });
+            let sliced = metadata.build_entries(&rule).unwrap();
+            assert_eq!(sliced.len(), count);
+            for ((entry, data), (full, full_data)) in sliced.iter().zip(&full_entries) {
+                assert_eq!(entry.offset, full.offset + 2);
+                assert_eq!(entry.size, 4);
+                assert_eq!(data, &full_data[2..6]);
+                assert!(metadata
+                    .context_from_address(&entry.offset)
+                    .unwrap()
+                    .name
+                    .ends_with(".bytes[0x2..0x6]"));
+            }
+            assert_eq!(
+                sliced[1].0.offset - sliced[0].0.offset,
+                full_entries[1].0.offset - full_entries[0].0.offset
+            );
+        }
+    }
+
+    #[test]
+    fn test_byte_slice_sentinel_uses_the_selected_size() {
+        let mut metadata = build_metadata();
+        let entries = metadata
+            .build_entries(&Rule {
+                symbol: "mMmSupvPoolLists".to_string(),
+                array: Some(Array {
+                    sentinel: true,
+                    ..Default::default()
+                }),
+                bytes: Some(ByteSlice { offset: 2, size: 4 }),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(entries.len(), 12);
+        assert!(entries.iter().all(|(entry, _)| entry.size == 4));
+        assert_eq!(
+            entries.last().unwrap().0.validation_type,
+            file::ValidationType::Content { content: vec![0; 4] }
+        );
+    }
+
+    #[test]
+    fn test_byte_slice_validates_content_and_guid_lengths() {
+        let mut metadata = build_metadata();
+        let mut rule = Rule {
+            symbol: "gMpInformation2HobGuid".to_string(),
+            bytes: Some(ByteSlice { offset: 2, size: 4 }),
+            validation: Validation::Content { content: vec![0; 4] },
+            ..Default::default()
+        };
+        assert!(metadata.build_entries(&rule).is_ok());
+        rule.validation = Validation::Content { content: vec![0; 16] };
+        assert!(metadata
+            .build_entries(&rule)
+            .unwrap_err()
+            .to_string()
+            .contains("does not match symbol size 4"));
+        rule.validation = Validation::Guid {
+            guid: Guid::from_fields(0, 0, 0, 0, 0, &[0; 6]),
+        };
+        assert!(metadata.build_entries(&rule).is_err());
+        rule.bytes = Some(ByteSlice { offset: 0, size: 16 });
+        assert!(metadata.build_entries(&rule).is_ok());
     }
 
     #[test]

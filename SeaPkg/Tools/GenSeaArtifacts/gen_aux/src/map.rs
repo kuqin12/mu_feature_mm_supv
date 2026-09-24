@@ -379,6 +379,18 @@ mod test {
             .unwrap();
         assert_eq!(entries[0].0.offset, address + 4);
         assert_eq!(entries[0].0.size, 2);
+
+        let mut rule = Rule {
+            symbol: "recovered_state".to_string(),
+            field: Some("1".to_string()),
+            bytes: Some(crate::config::ByteSlice { offset: 1, size: 1 }),
+            ..Default::default()
+        };
+        let entries = metadata.build_entries(&rule).unwrap();
+        assert_eq!(entries[0].0.offset, address + 5);
+        assert_eq!(entries[0].0.size, 1);
+        rule.bytes = Some(crate::config::ByteSlice { offset: 1, size: 2 });
+        assert!(metadata.build_entries(&rule).is_err());
     }
 
     #[test]

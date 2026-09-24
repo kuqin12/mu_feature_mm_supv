@@ -98,6 +98,8 @@ pub struct Rule {
     pub scope: Option<String>,
     /// If the symbol is an array, this configuration is applied to the symbol.
     pub array: Option<Array>,
+    /// Selects bytes within each resolved symbol, field, or array element.
+    pub bytes: Option<ByteSlice>,
     /// The type of validation to be performed on the symbol.
     pub validation: Validation,
     /// People associated with reviewing this rule.
@@ -117,6 +119,14 @@ pub struct Rule {
     /// Any additional remarks / context for the rule.
     #[serde(default)]
     pub remarks: String,
+}
+
+/// A nonempty byte slice relative to the storage selected by a rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ByteSlice {
+    pub offset: u32,
+    pub size: u32,
 }
 
 fn deserialize_date<'de, D>(deserializer: D) -> core::result::Result<String, D::Error>
@@ -374,6 +384,49 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rule_byte_slice_round_trip() {
+        let config: ConfigFile = toml::from_str(
+            r#"
+            [[rule]]
+            symbol = "state"
+            field = "storage"
+            bytes = { offset = 0x2a, size = 0x6 }
+            validation.type = "none"
+            last-reviewed = "2026-09-23"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.rules[0].bytes,
+            Some(ByteSlice { offset: 0x2a, size: 6 })
+        );
+        let serialized = toml::to_string(&config).unwrap();
+        let restored: ConfigFile = toml::from_str(&serialized).unwrap();
+        assert_eq!(restored.rules[0].bytes, config.rules[0].bytes);
+    }
+
+    #[test]
+    fn test_rule_byte_slice_is_optional_and_rejects_invalid_shape() {
+        let rule: Rule = toml::from_str("symbol = 'state'\nvalidation.type = 'none'").unwrap();
+        assert!(rule.bytes.is_none());
+        for bytes in [
+            "{}",
+            "{ offset = 1 }",
+            "{ size = 1 }",
+            "{ offset = -1, size = 1 }",
+            "{ offset = 0, size = -1 }",
+            "{ offset = 4294967296, size = 1 }",
+            "{ offset = 0, size = 4294967296 }",
+            "{ offset = 0, size = 1, extra = 2 }",
+        ] {
+            let config = format!(
+                "symbol = 'state'\nbytes = {bytes}\nvalidation.type = 'none'"
+            );
+            assert!(toml::from_str::<Rule>(&config).is_err(), "{bytes}");
+        }
+    }
 
     #[test]
     fn test_deserialize_date_valid() {

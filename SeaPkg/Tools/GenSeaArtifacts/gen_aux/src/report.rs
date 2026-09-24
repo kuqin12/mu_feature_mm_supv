@@ -605,7 +605,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::{Array, ConfigFile, Rule},
+        config::{Array, ByteSlice, ConfigFile, Rule},
         file::ImageValidationEntryHeader,
         metadata,
     };
@@ -631,6 +631,45 @@ mod tests {
         }
         aux.finalize();
         aux
+    }
+
+    #[test]
+    fn test_coverage_accepts_disjoint_byte_slice_and_rejects_overlap() {
+        for offset in [4, 3] {
+            let mut metadata = create_metadata();
+            let rules = [
+                Rule {
+                    symbol: "gMpInformation2HobGuid".to_string(),
+                    field: Some("Data1".to_string()),
+                    ..Default::default()
+                },
+                Rule {
+                    symbol: "gMpInformation2HobGuid".to_string(),
+                    bytes: Some(ByteSlice { offset, size: 16 - offset }),
+                    ..Default::default()
+                },
+            ];
+            let aux = build_rules(&mut metadata, &rules);
+            let report = Coverage::build(&aux, &mut metadata);
+            if offset == 4 {
+                let report = report.unwrap();
+                assert!(!report
+                    .segments(|segment| !segment.covered())
+                    .iter()
+                    .any(|segment| segment.symbol() == "gMpInformation2HobGuid"));
+                assert!(report
+                    .segments(|segment| segment.covered())
+                    .iter()
+                    .any(|segment| segment.symbol() == "gMpInformation2HobGuid.bytes[0x4..0x10]"));
+                assert!(aux.to_bytes().is_ok());
+            } else {
+                assert!(report
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("Overlapping validation entries"));
+            }
+        }
     }
 
     #[test]
@@ -760,6 +799,7 @@ mod tests {
             field: None,
             scope: None,
             array: None,
+            bytes: None,
             validation: crate::config::Validation::None,
             reviewers: vec!["Test Reviewer <Test@example.com>".to_string()],
             last_reviewed: "2025-07-11".to_string(),
@@ -983,6 +1023,7 @@ mod tests {
             field: None,
             scope: None,
             array: None,
+            bytes: None,
             validation: crate::config::Validation::None,
             reviewers: vec!["Test Reviewer <Test@example.com>".to_string()],
             last_reviewed: "2025-07-11".to_string(),
@@ -1078,6 +1119,7 @@ mod tests {
             field: None,
             scope: None,
             array: None,
+            bytes: None,
             validation: crate::config::Validation::None,
             reviewers: vec!["Test Reviewer <Test@example.com>".to_string()],
             last_reviewed: "2025-07-11".to_string(),
