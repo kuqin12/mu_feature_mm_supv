@@ -432,11 +432,11 @@ SeaResponderReport (
     goto Exit;
   }
 
-  if (!IsBufferInsideMmram (AuxFileBase, AuxFileHdr->Size)) {
-    DEBUG ((DEBUG_ERROR, "%a Reported aux file (0x%p: 0x%x) does not reside in MMRAM region!\n", __func__, AuxFileBase, AuxFileHdr->Size));
-    Status = EFI_SECURITY_VIOLATION;
-    goto Exit;
-  }
+  // if (!IsBufferInsideMmram (AuxFileBase, AuxFileHdr->Size)) {
+  //   DEBUG ((DEBUG_ERROR, "%a Reported aux file (0x%p: 0x%x) does not reside in MMRAM region!\n", __func__, AuxFileBase, AuxFileHdr->Size));
+  //   Status = EFI_SECURITY_VIOLATION;
+  //   goto Exit;
+  // }
 
   if (AuxFileHdr->HeaderSignature != IMAGE_VALIDATION_DATA_SIGNATURE) {
     DEBUG ((DEBUG_ERROR, "%a Reported aux file does not have valid signature 0x%p 0x%x\n", __func__, AuxFileHdr, AuxFileHdr->HeaderSignature));

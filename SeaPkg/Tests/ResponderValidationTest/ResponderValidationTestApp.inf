@@ -24,6 +24,9 @@
 
 [Sources]
   ResponderValidationTestApp.c
+  Paging.c
+  ../../Core/Runtime/SeaResponderReport.c
+  ../../Core/CpuDef.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -32,6 +35,7 @@
   UefiCpuPkg/UefiCpuPkg.dec
   MmSupervisorPkg/MmSupervisorPkg.dec
   SeaPkg/SeaPkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
 
 [LibraryClasses]
   BaseLib
@@ -43,9 +47,20 @@
   UnitTestLib
   ShellLib
   DxeServicesLib
+  PeCoffValidationLib
+  SafeIntLib
+  SecurePolicyLib
+  PeCoffLib
+  HashLibRaw
+  PeCoffLibNegative
+  CpuLib
 
 [Guids]
   gSeaValidationTestHandlerGuid
+  gEfiEventExitBootServicesGuid
+  gEfiHobMemoryAllocModuleGuid
+  gEfiMmPeiMmramMemoryReserveGuid
+  gEfiSmmSmramMemoryGuid
 
 [Protocols]
   gMmSupervisorCommunicationProtocolGuid

@@ -1,4 +1,4 @@
-﻿/** @file
+/** @file
   MM Core Main Entry Point
 
   Copyright (c) 2009 - 2025, Intel Corporation. All rights reserved.<BR>
@@ -18,6 +18,7 @@
 
 #include <Guid/MmCommBuffer.h>
 #include <Guid/MmCommonRegion.h>
+#include <Guid/MemoryAllocationHob.h>
 #include <Library/MmSupervisorCoreInitLib.h>
 #include <Library/FvLib.h>
 #include <Library/SecurePolicyLib.h>
@@ -888,6 +889,69 @@ MmSupervisorMain (
 
   // The lock step is the last thing to allocate, so the memory map is now final
   SupvInitHobsAddMmramDescriptors (&HobBuilder);
+
+  //
+  // For testing purpose, append a memory allocation module HOB describing the MM
+  // Supervisor core into the original HOB list (HobStart). A non-MM test entity
+  // (e.g. the SEA responder validation app) walks the platform HOB list and uses
+  // this entry to confirm the supervisor executed and to locate where it loaded.
+  //
+  {
+    EFI_HOB_HANDOFF_INFO_TABLE        *PhitHob;
+    EFI_HOB_MEMORY_ALLOCATION_MODULE  *TestModuleHob;
+    EFI_HOB_GENERIC_HEADER            *TestHobEnd;
+    UINT16                            TestHobLength;
+
+    PhitHob       = (EFI_HOB_HANDOFF_INFO_TABLE *)HobStart;
+    TestHobLength = (UINT16)ALIGN_VALUE (sizeof (EFI_HOB_MEMORY_ALLOCATION_MODULE), 8);
+
+    if ((PhitHob->EfiFreeMemoryTop <= PhitHob->EfiFreeMemoryBottom) ||
+        ((PhitHob->EfiFreeMemoryTop - PhitHob->EfiFreeMemoryBottom) < TestHobLength))
+    {
+      DEBUG ((DEBUG_ERROR, "%a Not enough free space in original HOB list to inject test HOB.\n", __func__));
+      ASSERT (FALSE);
+    } else {
+      //
+      // The injected HOB overwrites the current end-of-list marker, which is then
+      // rewritten immediately after it.
+      //
+      TestModuleHob = (EFI_HOB_MEMORY_ALLOCATION_MODULE *)(UINTN)PhitHob->EfiEndOfHobList;
+
+      CopyGuid (&TestModuleHob->MemoryAllocationHeader.Name, &gEfiHobMemoryAllocModuleGuid);
+      TestModuleHob->MemoryAllocationHeader.MemoryBaseAddress = (EFI_PHYSICAL_ADDRESS)(mMmCoreDriverEntry->ImageBuffer);
+      TestModuleHob->MemoryAllocationHeader.MemoryLength      = EFI_PAGES_TO_SIZE (mMmCoreDriverEntry->NumberOfPage);
+      TestModuleHob->MemoryAllocationHeader.MemoryType        = EfiReservedMemoryType;
+      ZeroMem (TestModuleHob->MemoryAllocationHeader.Reserved, sizeof (TestModuleHob->MemoryAllocationHeader.Reserved));
+
+      CopyGuid (&TestModuleHob->ModuleName, &gMmSupervisorCoreGuid);
+      TestModuleHob->EntryPoint = mMmCoreDriverEntry->ImageEntryPoint;
+
+      TestModuleHob->Header.HobType   = EFI_HOB_TYPE_MEMORY_ALLOCATION;
+      TestModuleHob->Header.HobLength = TestHobLength;
+      TestModuleHob->Header.Reserved  = 0;
+
+      //
+      // Re-create the end-of-list marker after the injected HOB and update the
+      // PHIT bookkeeping so the list remains well-formed.
+      //
+      TestHobEnd            = (EFI_HOB_GENERIC_HEADER *)((UINTN)TestModuleHob + TestHobLength);
+      TestHobEnd->HobType   = EFI_HOB_TYPE_END_OF_HOB_LIST;
+      TestHobEnd->HobLength = (UINT16)ALIGN_VALUE (sizeof (EFI_HOB_GENERIC_HEADER), 8);
+      TestHobEnd->Reserved  = 0;
+
+      PhitHob->EfiEndOfHobList     = (EFI_PHYSICAL_ADDRESS)(UINTN)TestHobEnd;
+      PhitHob->EfiFreeMemoryBottom = (EFI_PHYSICAL_ADDRESS)(UINTN)((UINTN)TestHobEnd + sizeof (EFI_HOB_GENERIC_HEADER));
+
+      DEBUG ((
+        DEBUG_INFO,
+        "%a Injected test memory allocation module HOB (%g) at 0x%p into original HOB list.\n",
+        __func__,
+        &gMmSupervisorCoreGuid,
+        TestModuleHob
+        ));
+    }
+  }
+
   SupvInitHobsFinalize (&HobBuilder);
 
   mCoreInitializationComplete = TRUE;
