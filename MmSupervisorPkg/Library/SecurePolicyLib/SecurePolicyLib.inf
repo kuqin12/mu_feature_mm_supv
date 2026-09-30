@@ -14,7 +14,7 @@
   MODULE_TYPE                    = MM_CORE_STANDALONE
   VERSION_STRING                 = 1.0
   PI_SPECIFICATION_VERSION       = 0x00010032
-  LIBRARY_CLASS                  = SecurePolicyLib|MM_CORE_STANDALONE
+  LIBRARY_CLASS                  = SecurePolicyLib
 
 #  VALID_ARCHITECTURES           = X64
 
