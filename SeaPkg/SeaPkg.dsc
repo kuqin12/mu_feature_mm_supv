@@ -35,6 +35,8 @@
   PeCoffValidationLib|SeaPkg/Library/BasePeCoffValidationLib/BasePeCoffValidationLib.inf
   SmrrLib|SeaPkg/Library/BaseSmrrLibNull/BaseSmrrLibNull.inf
   StackCheckLib|MdePkg/Library/StackCheckLibNull/StackCheckLibNull.inf
+  StmLib|SeaPkg/Library/StmLib/StmLib.inf
+  SecurePolicyLib|MmSupervisorPkg/Library/SecurePolicyLib/SecurePolicyLib.inf
 
 [LibraryClasses.common.PEIM]
   PeimEntryPoint|MdePkg/Library/PeimEntryPoint/PeimEntryPoint.inf
@@ -61,7 +63,6 @@
   UefiRuntimeServicesTableLib|MdePkg/Library/UefiRuntimeServicesTableLib/UefiRuntimeServicesTableLib.inf
 
 [LibraryClasses.common.USER_DEFINED]
-  StmLib|SeaPkg/Library/StmLib/StmLib.inf
   StmPlatformLib|SeaPkg/Library/StmPlatformLibNull/StmPlatformLibNull.inf
   SynchronizationLib|SeaPkg/Library/SimpleSynchronizationLib/SimpleSynchronizationLib.inf
   HashLibRaw|SeaPkg/Library/HashLibRaw/HashLibRaw.inf
@@ -72,7 +73,6 @@
   PeCoffLib|MdePkg/Library/BasePeCoffLib/BasePeCoffLib.inf
   PeCoffLibNegative|SeaPkg/Library/BasePeCoffLibNegative/BasePeCoffLibNegative.inf
   PeCoffExtraActionLib|MdePkg/Library/BasePeCoffExtraActionLibNull/BasePeCoffExtraActionLibNull.inf
-  SecurePolicyLib|MmSupervisorPkg/Library/SecurePolicyLib/SecurePolicyLib.inf
   LocalApicLib|UefiCpuPkg/Library/BaseXApicLib/BaseXApicLib.inf
   CpuLib|MdePkg/Library/BaseCpuLib/BaseCpuLib.inf
   BaseCryptLib|SeaPkg/Library/BaseCryptLibMbedTls/BaseCryptLib.inf

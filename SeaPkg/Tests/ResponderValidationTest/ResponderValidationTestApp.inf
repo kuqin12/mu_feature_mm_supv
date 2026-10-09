@@ -37,22 +37,11 @@
   BaseLib
   BaseMemoryLib
   DebugLib
-  PrintLib
   UefiApplicationEntryPoint
   UefiLib
-  UnitTestLib
+  SecurePolicyLib
   ShellLib
-  DxeServicesLib
+  StmLib
 
 [Guids]
-  gSeaValidationTestHandlerGuid
-
-[Protocols]
-  gMmSupervisorCommunicationProtocolGuid
-  gEfiTcg2ProtocolGuid
-
-[Pcd]
-  gEfiSeaPkgTokenSpaceGuid.PcdAuxBinFile                   ## CONSUMES
-  gEfiSeaPkgTokenSpaceGuid.PcdMmiEntryBinHash              ## CONSUMES
-  gEfiSeaPkgTokenSpaceGuid.PcdMmiEntryBinSize              ## CONSUMES
-  gEfiSeaPkgTokenSpaceGuid.PcdMmSupervisorCoreHash         ## CONSUMES
+  gEfiEventExitBootServicesGuid
