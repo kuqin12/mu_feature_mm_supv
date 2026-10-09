@@ -98,7 +98,6 @@
   SeaPkg/MmiEntrySea/MmiEntrySea.inf
   SeaPkg/MmiEntrySeaV5/MmiEntrySeaV5.inf
 
-  SeaPkg/Core/Test/ResponderValidationTestLib.inf
   SeaPkg/Tests/ResponderValidationTest/ResponderValidationTestApp.inf {
     <LibraryClasses>
       NULL|MdePkg/Library/StackCheckLibNull/StackCheckLibNull.inf
